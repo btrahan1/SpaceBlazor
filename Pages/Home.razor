@@ -1,4 +1,6 @@
 ﻿@page "/"
+@inject SpaceBlazor.Services.GalaxyService Galaxy
+@inject SpaceBlazor.Services.GameState State
 @inject IJSRuntime JSRuntime
 @using SpaceBlazor.Shared
 
@@ -10,12 +12,42 @@
 </div>
 
 @code {
+    private DotNetObjectReference<Home>? objRef;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            await Task.Delay(100); // Small yield
+            objRef = DotNetObjectReference.Create(this);
+            await Task.Delay(100); 
+            
             await JSRuntime.InvokeVoidAsync("spaceRenderer.init", "renderCanvas");
+            await JSRuntime.InvokeVoidAsync("spaceRenderer.setDotNetRef", objRef);
+
+            // Load Initial System
+            await JSRuntime.InvokeVoidAsync("spaceRenderer.loadSystem", Galaxy.CurrentSystem);
         }
+    }
+
+    [JSInvokable]
+    public async Task JumpToSystem(string targetSystemId)
+    {
+        // 1. Update C# State
+        Galaxy.JumpTo(targetSystemId);
+        State.HasChanged(); // Update HUD
+
+        // 2. Reload JS World
+        await JSRuntime.InvokeVoidAsync("spaceRenderer.loadSystem", Galaxy.CurrentSystem);
+        
+        // 3. Reset Ship Position? (Ideally, spawn at the gate you entered from)
+        // For now, let's just keep position or reset to center? 
+        // Best to reset to (0,0,0) or near the gate.
+        // Let's reset ship:
+        await JSRuntime.InvokeVoidAsync("spaceRenderer.resetShip");
+    }
+
+    public void Dispose()
+    {
+        objRef?.Dispose();
     }
 }

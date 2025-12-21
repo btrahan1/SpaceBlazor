@@ -54,6 +54,8 @@ namespace SpaceBlazor.Services
             NotifyStateChanged();
         }
 
+        public void HasChanged() => NotifyStateChanged();
+
         private void NotifyStateChanged() => OnChange?.Invoke();
     }
 }

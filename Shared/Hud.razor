@@ -1,4 +1,5 @@
 @inject SpaceBlazor.Services.GameState State
+@inject SpaceBlazor.Services.GalaxyService Galaxy
 @implements IDisposable
 
 <div class="hud-container">
@@ -29,7 +30,7 @@
 
     <!-- Top Right: Economy -->
     <div class="hud-panel eco-panel">
-        <div class="system-name">System: @State.CurrentSystem</div>
+        <div class="system-name">System: @Galaxy.CurrentSystem.Name</div>
         <div class="credits">@State.Credits.ToString("N0") CR</div>
     </div>
 </div>
@@ -43,6 +44,7 @@
         height: 100%;
         pointer-events: none; /* Let clicks pass through to 3D Canvas */
         padding: 20px;
+        z-index: 1000; /* FORCE TOP */
         display: flex;
         justify-content: space-between;
         font-family: 'Consolas', 'Courier New', monospace;

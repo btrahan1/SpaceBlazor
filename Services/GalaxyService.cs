@@ -1,0 +1,136 @@
+using System.Numerics;
+using SpaceBlazor.Models;
+
+namespace SpaceBlazor.Services
+{
+    public class GalaxyService
+    {
+        public List<StarSystem> Systems { get; private set; } = new();
+        public StarSystem CurrentSystem { get; private set; }
+
+        public GalaxyService()
+        {
+            GenerateGalaxy();
+        }
+
+        public void GenerateGalaxy()
+        {
+            // Seeded random for consistent universe
+            var rng = new Random(1337); 
+            var systemNames = new[] { "Sol", "Alpha Centauri", "Sirius", "Vega", "Procyon", "Betelgeuse", "Rigel", "Deneb", "Altair", "Antares" };
+            var prefixes = new[] { "Sigma", "Tau", "Omicron", "Theta", "Zeta" };
+
+            // 1. Create Systems
+            for (int i = 0; i < 50; i++)
+            {
+                var sys = new StarSystem();
+                
+                if (i < systemNames.Length)
+                    sys.Name = systemNames[i];
+                else
+                    sys.Name = $"{prefixes[rng.Next(prefixes.Length)]}-{rng.Next(10, 99)}";
+
+                sys.Description = "A generic star system in the void.";
+                
+                // Random 3D Coord for map (Scale 1000)
+                sys.Coordinates = new Vec3(rng.Next(-1000, 1000), rng.Next(-100, 100), rng.Next(-1000, 1000));
+                
+                // Random Skybox Color (Dark Tints)
+                var r = rng.Next(0, 50);
+                var g = rng.Next(0, 30);
+                var b = rng.Next(20, 80);
+                sys.SkyboxColor = $"rgb({r},{g},{b})";
+
+                // Planets (1-3 planets)
+                int planetCount = rng.Next(1, 4);
+                for(int p=0; p<planetCount; p++)
+                {
+                    // Push planets WAY out (Outer System)
+                    // Radius: 1000 - 3000
+                    double angle = rng.NextDouble() * Math.PI * 2;
+                    double radius = rng.Next(1000, 3000);
+                    
+                    float px = (float)(Math.Cos(angle) * radius);
+                    float pz = (float)(Math.Sin(angle) * radius);
+                    float py = rng.Next(-200, 200);
+
+                    sys.Planets.Add(new Planet 
+                    {
+                        Name = $"{sys.Name} {ToRoman(p+1)}",
+                        Type = rng.NextDouble() > 0.5 ? "Gas Giant" : "Rocky",
+                        Position = new Vec3(px, py, pz),
+                        Size = rng.Next(100, 400) // Huge distant worlds
+                    });
+                }
+
+                Systems.Add(sys);
+            }
+
+            // 2. Link Systems (Linear Chain + Random Loops)
+            // This ensures System 0 connects to System 1, 1 to 2, etc. (Guaranteed reachability)
+            for (int i = 0; i < Systems.Count - 1; i++)
+            {
+                ConnectSystems(Systems[i], Systems[i+1], rng);
+            }
+            
+            // FIX: Force Sol's first gate to be visible
+            if (Systems[0].JumpGates.Any())
+            {
+                Systems[0].JumpGates[0].Position = new Vec3(0, 0, 200); // 200 units ahead
+            }
+
+            // 3. Add Random Shortcuts (Wormholes)
+            for (int i = 0; i < 20; i++)
+            {
+                var a = Systems[rng.Next(Systems.Count)];
+                var b = Systems[rng.Next(Systems.Count)];
+                if (a != b) ConnectSystems(a, b, rng);
+            }
+
+            // Start at Sol (or first system)
+            CurrentSystem = Systems[0];
+        }
+
+        private void ConnectSystems(StarSystem a, StarSystem b, Random rng)
+        {
+            // Avoid duplicates
+            if (a.JumpGates.Any(g => g.TargetSystemId == b.Id)) return;
+
+            // Gate Position (Inner System: 200 - 600)
+            // Ensure they don't spawn on top of the Sun (0-100)
+            var dist = rng.Next(200, 600);
+            var angle = rng.NextDouble() * Math.PI * 2;
+            var gx = (float)(Math.Cos(angle) * dist);
+            var gz = (float)(Math.Sin(angle) * dist);
+            var gy = rng.Next(-50, 50);
+
+            a.JumpGates.Add(new JumpGate { TargetSystemId = b.Id, Name = $"Gate to {b.Name}", Position = new Vec3(gx, gy, gz) });
+            
+            // Generate distinct position for return gate
+            dist = rng.Next(200, 600);
+            angle = rng.NextDouble() * Math.PI * 2;
+            gx = (float)(Math.Cos(angle) * dist);
+            gz = (float)(Math.Sin(angle) * dist);
+            gy = rng.Next(-50, 50);
+
+            b.JumpGates.Add(new JumpGate { TargetSystemId = a.Id, Name = $"Gate to {a.Name}", Position = new Vec3(gx, gy, gz) });
+        }
+
+        private string ToRoman(int number)
+        {
+            if (number == 1) return "I";
+            if (number == 2) return "II";
+            if (number == 3) return "III";
+            return "IV";
+        }
+
+        public void JumpTo(string systemId)
+        {
+            var target = Systems.FirstOrDefault(s => s.Id == systemId);
+            if (target != null)
+            {
+                CurrentSystem = target;
+            }
+        }
+    }
+}
