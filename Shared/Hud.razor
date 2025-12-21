@@ -1,0 +1,119 @@
+@inject SpaceBlazor.Services.GameState State
+@implements IDisposable
+
+<div class="hud-container">
+    <!-- Top Left: Ship Status -->
+    <div class="hud-panel status-panel">
+        <div class="status-row">
+            <span class="label">SHIELD</span>
+            <div class="bar-container">
+                <div class="bar shield-bar" style="width: @(GetShieldPct())%"></div>
+            </div>
+            <span class="value">@State.Shield</span>
+        </div>
+        <div class="status-row">
+            <span class="label">HULL</span>
+            <div class="bar-container">
+                <div class="bar hull-bar" style="width: @(GetHullPct())%"></div>
+            </div>
+            <span class="value">@State.Hull</span>
+        </div>
+        <div class="status-row">
+            <span class="label">FUEL</span>
+            <div class="bar-container">
+                <div class="bar fuel-bar" style="width: @(GetFuelPct())%"></div>
+            </div>
+             <span class="value">@State.Fuel</span>
+        </div>
+    </div>
+
+    <!-- Top Right: Economy -->
+    <div class="hud-panel eco-panel">
+        <div class="system-name">System: @State.CurrentSystem</div>
+        <div class="credits">@State.Credits.ToString("N0") CR</div>
+    </div>
+</div>
+
+<style>
+    .hud-container {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none; /* Let clicks pass through to 3D Canvas */
+        padding: 20px;
+        display: flex;
+        justify-content: space-between;
+        font-family: 'Consolas', 'Courier New', monospace;
+        color: #00ff00; /* Retro Terminal Green */
+        text-shadow: 0 0 5px #00ff00;
+    }
+
+    .hud-panel {
+        background: rgba(0, 20, 0, 0.5);
+        border: 1px solid #005500;
+        padding: 10px;
+        border-radius: 5px;
+    }
+
+    .status-row {
+        display: flex;
+        align-items: center;
+        margin-bottom: 5px;
+        gap: 10px;
+    }
+
+    .label {
+        width: 50px;
+        font-weight: bold;
+    }
+
+    .bar-container {
+        width: 150px;
+        height: 10px;
+        background: #002200;
+        border: 1px solid #004400;
+    }
+
+    .bar {
+        height: 100%;
+        transition: width 0.2s;
+    }
+    
+    .shield-bar { background: cyan; box-shadow: 0 0 5px cyan; }
+    .hull-bar { background: red; box-shadow: 0 0 5px red; }
+    .fuel-bar { background: yellow; box-shadow: 0 0 5px yellow; }
+
+    .eco-panel {
+        text-align: right;
+    }
+
+    .credits {
+        font-size: 1.5rem;
+        font-weight: bold;
+        color: gold;
+        text-shadow: 0 0 5px gold;
+    }
+    
+    .system-name {
+        font-size: 1.2rem;
+        margin-bottom: 5px;
+    }
+</style>
+
+@code {
+    protected override void OnInitialized()
+    {
+        State.OnChange += StateHasChanged;
+    }
+
+    public void Dispose()
+    {
+        State.OnChange -= StateHasChanged;
+    }
+
+    private int GetShieldPct() => (int)((double)State.Shield / State.MaxShield * 100);
+    private int GetHullPct() => (int)((double)State.Hull / State.MaxHull * 100);
+    private int GetFuelPct() => (int)((double)State.Fuel / State.MaxFuel * 100);
+}

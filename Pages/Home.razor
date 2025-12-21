@@ -1,9 +1,13 @@
 ﻿@page "/"
 @inject IJSRuntime JSRuntime
+@using SpaceBlazor.Shared
 
-<PageTitle>SpaceBlazor - Sector 001</PageTitle>
+<PageTitle>SpaceBlazor - The Astral Frontier</PageTitle>
 
-<canvas id="renderCanvas" style="width: 100%; height: 100vh; touch-action: none; outline: none;" tabindex="1"></canvas>
+<div style="position: relative; width: 100vw; height: 100vh; overflow: hidden;">
+    <Hud />
+    <canvas id="renderCanvas" style="width: 100%; height: 100%; touch-action: none; outline: none;" tabindex="1"></canvas>
+</div>
 
 @code {
     protected override async Task OnAfterRenderAsync(bool firstRender)
