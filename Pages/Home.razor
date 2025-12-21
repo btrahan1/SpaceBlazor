@@ -1,0 +1,17 @@
+﻿@page "/"
+@inject IJSRuntime JSRuntime
+
+<PageTitle>SpaceBlazor - Sector 001</PageTitle>
+
+<canvas id="renderCanvas" style="width: 100%; height: 100vh; touch-action: none; outline: none;" tabindex="1"></canvas>
+
+@code {
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await Task.Delay(100); // Small yield
+            await JSRuntime.InvokeVoidAsync("spaceRenderer.init", "renderCanvas");
+        }
+    }
+}
