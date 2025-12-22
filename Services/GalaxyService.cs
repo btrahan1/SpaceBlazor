@@ -166,8 +166,17 @@ namespace SpaceBlazor.Services
                 if (price < 1) price = 1;
 
                 // Type Modifiers
-                if (station.Type == "Mining Array" && com.Category == "Ore") price = (int)(price * 0.6); // Cheap Ore
-                if (station.Type == "Trading Post" && com.Category == "Tech") price = (int)(price * 1.2); // Expensive Tech
+                if (station.Type == "Mining Array")
+                {
+                    if (com.Category == "Ore") price = (int)(price * 0.5); // Supply: Cheap
+                    if (com.Category == "Tech" || com.Category == "Fuel") price = (int)(price * 1.5); // Demand: High
+                }
+                
+                if (station.Type == "Trading Post")
+                {
+                    if (com.Category == "Tech") price = (int)(price * 0.6); // Supply: Cheap
+                    if (com.Category == "Ore") price = (int)(price * 1.5); // Demand: High
+                }
 
                 station.MarketData[com.Name] = price;
             }

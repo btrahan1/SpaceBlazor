@@ -145,6 +145,43 @@
                     }
                 }
             </svg>
+            <!-- System Info Panel -->
+            @if (selectedMapSystemId != null)
+            {
+                var sys = Galaxy.Systems.FirstOrDefault(s => s.Id == selectedMapSystemId);
+                if (sys != null)
+                {
+                    <div class="map-info-panel" @onmousedown:stopPropagation @onwheel:stopPropagation>
+                        <h2>@sys.Name</h2>
+                        <div class="info-row">
+                            <span class="label">Coordinates:</span>
+                            <span class="value">@((int)sys.Coordinates.x), @((int)sys.Coordinates.z)</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="label">Planets:</span>
+                            <span class="value">@sys.Planets.Count</span>
+                        </div>
+                        <hr/>
+                        <h3>Stations & Economy</h3>
+                        @if (sys.Stations.Any())
+                        {
+                            @foreach (var st in sys.Stations)
+                            {
+                                <div class="station-card">
+                                    <div class="station-name">@st.Name</div>
+                                    <div class="station-type">@st.Type</div>
+                                    <div class="trade-hint">@GetTradeHint(st.Type)</div>
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            <p class="text-muted">No Stations detected.</p>
+                        }
+                    </div>
+                }
+            }
+            
             <div class="map-controls">
                 @if (selectedMapSystemId != null && selectedMapSystemId != Galaxy.CurrentSystem.Id)
                 {
@@ -171,6 +208,7 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
+        overflow: hidden; /* Prevent scroll on zoom */
         padding: 20px;
     }
     
@@ -180,16 +218,133 @@
         text-shadow: 0 0 10px cyan;
     }
     
+    .map-info-panel {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        width: 300px;
+        background: rgba(0, 20, 40, 0.9);
+        border: 1px solid #00aaff;
+        border-radius: 8px;
+        padding: 15px;
+        color: white;
+        pointer-events: auto; /* Enable interaction */
+        box-shadow: 0 0 20px rgba(0, 170, 255, 0.3);
+    }
+    
+    .map-info-panel h2 {
+        margin: 0 0 10px 0;
+        color: #00aaff;
+        font-size: 1.5rem;
+        text-transform: uppercase;
+    }
+    
+    .map-info-panel h3 {
+        font-size: 1.1rem;
+        color: #ddd;
+        border-bottom: 1px solid #444;
+        padding-bottom: 5px;
+        margin-top: 10px;
+    }
+    
+    .info-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 5px;
+        font-size: 0.9rem;
+    }
+    
+    .label { color: #888; }
+    .value { font-weight: bold; }
+    
+    .station-card {
+        background: rgba(255, 255, 255, 0.05);
+        padding: 10px;
+        margin-top: 5px;
+        border-left: 3px solid #00ffaa;
+    }
+    
+    .station-name { font-weight: bold; color: white; }
+    .station-type { font-size: 0.8rem; color: #aaa; font-style: italic; }
+    .trade-hint { 
+        font-size: 0.8rem; 
+        color: #aaffaa; 
+        margin-top: 4px; 
+    }
+    
     .map-controls {
         position: absolute;
         bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 20px;
+        align-items: center;
+        pointer-events: auto;
         color: white;
+    }
+    
+    .key {
+        background: #333;
+        padding: 2px 6px;
+        border-radius: 4px;
+        border: 1px solid #666;
+        font-family: monospace;
     }
 
     /* ... existing dock styles ... */
     .dock-menu {
-        /* ... */
-}
+        position: absolute;
+        top: 0; left: 0;
+        width: 100vw; height: 100vh;
+        background: rgba(0, 5, 10, 0.9);
+        z-index: 4000;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: white;
+    }
+
+    .dock-header {
+        text-align: center;
+        margin-bottom: 20px;
+    }
+    
+    .dock-header h1 {
+        font-size: 3rem;
+        color: #00ffaa;
+        text-shadow: 0 0 20px #00ffaa;
+        margin: 0;
+    }
+    
+    .dock-content {
+        display: flex;
+        gap: 40px;
+        background: rgba(0, 20, 40, 0.8);
+        padding: 40px;
+        border: 1px solid #00ffaa;
+        border-radius: 10px;
+        box-shadow: 0 0 50px rgba(0, 255, 170, 0.2);
+    }
+    
+    .services-panel, .market-panel {
+        width: 300px;
+    }
+    
+    .services-panel h3, .market-panel h3 {
+        border-bottom: 1px solid #555;
+        padding-bottom: 10px;
+        margin-bottom: 20px;
+        color: #aaa;
+    }
+    
+    .service-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 15px;
+        font-size: 1.1rem;
+    }
 </style>
 
 @code {
@@ -487,6 +642,13 @@
             await Task.Delay(1000); // Wait for load
             ProcessNextAutoNavStep();
         }
+    }
+
+    private string GetTradeHint(string type)
+    {
+        if (type == "Mining Array") return "⬇ SELL: Iron, Gold (Cheap) | ⬆ BUY: Electronics, Medical";
+        if (type == "Trading Post") return "⬇ SELL: Electronics, Medical | ⬆ BUY: Iron, Gold, Fuel";
+        return "Standard Market";
     }
 
     public void Dispose()

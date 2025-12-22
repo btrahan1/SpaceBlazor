@@ -130,15 +130,8 @@ window.spaceRenderer = {
 
         // Render Loop
         this.engine.runRenderLoop(() => {
-            this.updateShip();
-            this.updateLasers();
-            this.checkCollisions();
-            this.checkGateCollisions();
-            this.checkDockingProximity(); // Check Station Distance
-            this.updateSpaceDust(); // [NEW] Move Speed Particles
-            this.updateWaypoints(); // [NEW] Project HUD
-            this.updateWarpEffect(); // Process Warp Visuals
-            this.updateRadar(); // Update 2D Radar
+            this.frame++;
+            this.update();
             this.scene.render();
         });
 
@@ -493,7 +486,6 @@ window.spaceRenderer = {
         var nearestStation = null;
 
         // Find nearest station
-        // Optimization: Assume stations are named "stationRoot_GUID"
         this.systemMeshes.forEach(m => {
             if (m.name.startsWith("stationRoot_")) {
                 var dist = BABYLON.Vector3.Distance(this.shipBody.absolutePosition, m.position);
@@ -503,6 +495,11 @@ window.spaceRenderer = {
                 }
             }
         });
+
+        // Debug Log (Periodic)
+        if (this.frame % 120 === 0 && nearestStation) {
+            console.log(`Docking Check: Closest=${nearestStation.name} Dist=${minDist.toFixed(1)}`);
+        }
 
         // Threshold = 50 units
         if (nearestStation && minDist < 50) {
@@ -632,6 +629,23 @@ window.spaceRenderer = {
         this.dustSPS.initParticles();
         this.dustSPS.setParticles();
         this.dustMesh = mesh;
+    },
+
+    // --- Update Loop ---
+
+    update: function () {
+        if (!this.scene) return;
+
+        // Sub-systems
+        this.updateShip();
+        this.updateLasers();
+        this.checkCollisions();
+        this.checkGateCollisions();
+        this.checkDockingProximity();
+        this.updateSpaceDust();
+        this.updateWaypoints();
+        this.updateWarpEffect();
+        this.updateRadar(); // [FIX] Restore Radar
     },
 
     updateSpaceDust: function () {
@@ -872,6 +886,13 @@ window.spaceRenderer = {
         if (!this.ship) return;
 
         var dt = this.engine.getDeltaTime() / 1000;
+
+        // Debug Log (Periodic)
+        if (this.frame % 120 === 0) {
+            console.log(`Ship Status: DT=${dt.toFixed(4)} Cruising=${this.isCruising} Pos=${this.ship.position.toString()}`);
+        }
+
+        var speed = 40; // Doubled Speed
         var speed = 40; // Doubled Speed
         var forward = this.ship.forward;
         var movement = BABYLON.Vector3.Zero();
@@ -888,6 +909,7 @@ window.spaceRenderer = {
             if (dist < 20) { // [FIX] Fly closer (into the gate)
                 this.isCruising = false;
                 this.autopilotTarget = null;
+                this.frame = 0; // [NEW]Frame counter for periodic tasks
                 console.log("Autopilot: Arrived at target.");
             }
         }
