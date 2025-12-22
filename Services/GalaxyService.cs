@@ -86,6 +86,26 @@ namespace SpaceBlazor.Services
                 GenerateMarket(station, rng); // [NEW] Generate Prices
                 sys.Stations.Add(station);
 
+                // [NEW] Spawn Shipyard (distinct location, near last planet or far out)
+                var shipyardPos = new Vec3(stationPos.x * -1, stationPos.y + 200, stationPos.z * -1); // Opposite side
+                if (planetCount > 1)
+                {
+                    // If multiple planets, put shipyard near the last one
+                    var lastP = sys.Planets.Last();
+                    shipyardPos = new Vec3(lastP.Position.x - 300, lastP.Position.y - 50, lastP.Position.z - 300);
+                }
+
+                var shipyard = new SpaceStation
+                {
+                    Name = $"{sys.Name} Shipyards",
+                    Type = "Shipyard",
+                    Position = shipyardPos
+                };
+                
+                // [FIX] Shipyards do NOT sell commodities.
+                // GenerateMarket(shipyard, rng); 
+                sys.Stations.Add(shipyard);
+
                 Systems.Add(sys);
             }
 

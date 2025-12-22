@@ -1,0 +1,188 @@
+@inject SpaceBlazor.Services.PersistenceService Persist
+@inject SpaceBlazor.Services.GalaxyService Galaxy
+@inject SpaceBlazor.Services.GameState State
+
+@if (IsVisible)
+{
+    <div class="modal-overlay" @onmousedown:stopPropagation @onclick:stopPropagation>
+        <div class="modal-terminal">
+            <div class="modal-header">
+                <span>@Mode SYSTEM</span>
+                <button class="close-btn" @onclick="Close">X</button>
+            </div>
+
+            <div class="modal-content">
+                @if (Mode == "SAVE")
+                {
+                    <div class="save-form">
+                        <label>FILE NAME:</label>
+                        <input type="text" @bind="SaveName" class="terminal-input" placeholder="ENTER_NAME" />
+                        <button class="btn-terminal" @onclick="DoSave">CONFIRM SAVE</button>
+                    </div>
+                }
+                else
+                {
+                    <div class="load-list">
+                        @if (SaveFiles == null || SaveFiles.Count == 0)
+                        {
+                            <div class="empty">NO_DATA_FOUND</div>
+                        }
+                        else
+                        {
+                            @foreach (var file in SaveFiles)
+                            {
+                                <div class="save-slot">
+                                    <span class="fname">@file</span>
+                                    <div class="slot-actions">
+                                        <button class="btn-terminal small" @onclick="() => DoLoad(file)">LOAD</button>
+                                        <button class="btn-terminal small danger" @onclick="() => DoDelete(file)">DEL</button>
+                                    </div>
+                                </div>
+                            }
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .modal-overlay {
+        position: fixed;
+        top: 0; left: 0; width: 100vw; height: 100vh;
+        background: rgba(0,0,0,0.7);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 2000;
+        pointer-events: auto;
+    }
+
+    .modal-terminal {
+        width: 400px;
+        background: #001100;
+        border: 2px solid cyan;
+        box-shadow: 0 0 15px cyan;
+        color: cyan;
+        font-family: 'Share Tech Mono', monospace;
+        padding: 10px;
+    }
+
+    .modal-header {
+        background: rgba(0, 255, 255, 0.2);
+        padding: 5px 10px;
+        font-weight: bold;
+        display: flex;
+        justify-content: space-between;
+    }
+
+    .close-btn {
+        background: none; border: none; color: cyan; cursor: pointer; font-weight: bold;
+    }
+
+    .modal-content {
+        padding: 20px;
+    }
+
+    .terminal-input {
+        width: 100%;
+        background: black;
+        border: 1px solid lime;
+        color: lime;
+        padding: 5px;
+        margin-bottom: 10px;
+        font-family: inherit;
+        text-transform: uppercase;
+    }
+
+    .btn-terminal {
+        background: cyan;
+        color: black;
+        border: none;
+        padding: 5px 15px;
+        cursor: pointer;
+        font-weight: bold;
+        width: 100%;
+    }
+    .btn-terminal:hover { background: white; }
+    
+    .save-slot {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid #004400;
+        padding: 5px 0;
+    }
+    .slot-actions { display: flex; gap: 5px; }
+    
+    .btn-terminal.small {
+        width: auto;
+        padding: 2px 8px;
+        font-size: 0.8rem;
+    }
+    .btn-terminal.small.danger {
+        background: red;
+        color: white;
+    }
+    .btn-terminal.small.danger:hover { background: #ff4444; }
+</style>
+
+@code {
+    [Parameter] public EventCallback OnLoadComplete { get; set; }
+
+    private bool IsVisible = false;
+    private string Mode = "SAVE";
+    private string SaveName = "COMMANDER_1";
+    private List<string> SaveFiles = new();
+
+    public async Task Show(string mode)
+    {
+        Mode = mode;
+        IsVisible = true;
+        if (Mode == "LOAD")
+        {
+            SaveFiles = await Persist.GetSavesAsync();
+        }
+        else
+        {
+            SaveName = $"SAVE_{DateTime.Now.ToString("MMdd_HHmm")}";
+        }
+        StateHasChanged();
+    }
+
+    public void Close()
+    {
+        IsVisible = false;
+        StateHasChanged();
+    }
+
+    private async Task DoSave()
+    {
+        if (string.IsNullOrWhiteSpace(SaveName)) return;
+        await Persist.SaveGameAsync(SaveName, State, Galaxy.CurrentSystem.Id);
+        Close();
+    }
+
+    private async Task DoLoad(string name)
+    {
+        var data = await Persist.LoadGameAsync(name);
+        if (data != null)
+        {
+            State.LoadState(data);
+            Galaxy.JumpTo(data.CurrentSystemId);
+            // Restore Position
+            await Persist.SetShipPositionAsync(data.PositionX, data.PositionY, data.PositionZ);
+            
+            await OnLoadComplete.InvokeAsync();
+        }
+        Close();
+    }
+
+    private async Task DoDelete(string name)
+    {
+        await Persist.DeleteGameAsync(name);
+        SaveFiles = await Persist.GetSavesAsync(); // Refresh List
+        StateHasChanged();
+    }
+}

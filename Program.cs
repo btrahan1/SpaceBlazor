@@ -11,5 +11,6 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
 builder.Services.AddSingleton<GameState>();
 builder.Services.AddSingleton<GalaxyService>();
+builder.Services.AddScoped<PersistenceService>();
 
 await builder.Build().RunAsync();

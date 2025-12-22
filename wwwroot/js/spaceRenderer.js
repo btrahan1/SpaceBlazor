@@ -156,7 +156,9 @@ window.spaceRenderer = {
 
     engageAutopilotByName: function (meshName) {
         if (!this.scene) return;
-        var mesh = this.scene.getMeshByName(meshName);
+        // [FIX] Check for Mesh OR TransformNode (Stations/Gates use Nodes as roots)
+        var mesh = this.scene.getMeshByName(meshName) || this.scene.getTransformNodeByName(meshName);
+
         if (mesh) {
             this.autopilotTarget = mesh;
             this.isCruising = true;
@@ -165,7 +167,7 @@ window.spaceRenderer = {
             console.log("Autopilot Target Not Found: " + meshName);
             // Retry once after short delay (Mesh might be creating)
             setTimeout(() => {
-                var mesh = this.scene.getMeshByName(meshName);
+                var mesh = this.scene.getMeshByName(meshName) || this.scene.getTransformNodeByName(meshName);
                 if (mesh) {
                     this.autopilotTarget = mesh;
                     this.isCruising = true;
@@ -175,11 +177,49 @@ window.spaceRenderer = {
         }
     },
 
+    // [NEW] Interop for Save/Load
+    getShipPosition: function () {
+        if (!this.ship) return { x: 0, y: 0, z: 0 };
+        return {
+            x: this.ship.position.x,
+            y: this.ship.position.y,
+            z: this.ship.position.z
+        };
+    },
+
+    setShipPosition: function (x, y, z) {
+        if (!this.ship) return;
+        this.ship.position.set(x, y, z);
+        // Reset movement if any
+        // If physics impostor existed, we'd reset linear velocity here
+        console.log("Ship Repositioned to: ", x, y, z);
+    },
+
+    // [NEW] Helper to force unlock cursor (e.g. when Docking or Map opens)
+    exitFlightMode: function () {
+        if (document.pointerLockElement === this.canvas) {
+            document.exitPointerLock();
+            console.log("Flight Mode: DISENGAGED (Auto)");
+        }
+    },
+
     // Restore Pointer Lock
     setupPointerLock: function () {
-        this.canvas.addEventListener("click", () => {
-            this.canvas.requestPointerLock = this.canvas.requestPointerLock || this.canvas.mozRequestPointerLock;
-            this.canvas.requestPointerLock();
+        // [NEW] Tab to Toggle Flight Mode (No more Click stealing)
+        window.addEventListener("keydown", (evt) => {
+            if (evt.code === "Tab") {
+                evt.preventDefault(); // Stop focus change
+
+                var canvas = this.canvas;
+                if (document.pointerLockElement === canvas) {
+                    document.exitPointerLock();
+                    console.log("Flight Mode: DISENGAGED");
+                } else {
+                    canvas.requestPointerLock = canvas.requestPointerLock || canvas.mozRequestPointerLock;
+                    canvas.requestPointerLock();
+                    console.log("Flight Mode: ENGAGED");
+                }
+            }
         });
     },
 
@@ -228,19 +268,30 @@ window.spaceRenderer = {
         panel1.parent = root;
         panel1.position.y = 10;
         var pMat = new BABYLON.StandardMaterial("s_pmat", this.scene);
-        pMat.emissiveColor = new BABYLON.Color3(0, 0, 0.4);
+
+        // [NEW] Visual Distinctiveness for Shipyards
+        if (stationData.type === "Shipyard") {
+            pMat.emissiveColor = new BABYLON.Color3(0.6, 0.0, 0.6); // Magenta Panels
+        } else {
+            pMat.emissiveColor = new BABYLON.Color3(0, 0, 0.4); // Blue Panels
+        }
         panel1.material = pMat;
 
         var panel2 = panel1.clone("s_p2");
         panel2.parent = root;
         panel2.rotation.y = Math.PI / 2;
 
-        // 3. Red Beacon
+        // 3. Beacon
         var beacon = BABYLON.MeshBuilder.CreateSphere("s_bcn", { diameter: 4 }, this.scene);
         beacon.parent = root;
         beacon.position.y = 32;
         var bMat = new BABYLON.StandardMaterial("s_bmat", this.scene);
-        bMat.emissiveColor = new BABYLON.Color3(1, 0, 0);
+
+        if (stationData.type === "Shipyard") {
+            bMat.emissiveColor = new BABYLON.Color3(1, 0, 1); // Magenta Beacon
+        } else {
+            bMat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red Beacon
+        }
         beacon.material = bMat;
 
         // 4. Label
@@ -458,24 +509,30 @@ window.spaceRenderer = {
         if (!this.starSystem || !this.starSystem.mesh) return;
 
         if (this.isWarping) {
-            // ENGAGE WARP: Move Stars FAST towards camera (simulate speed)
-            // Instead of scaling (which makes needles invisible head-on), we move the universe.
+            // ENGAGE WARP: Move Stars FAST towards camera
             this.starSystem.mesh.position.z -= 100;
 
-            // Loop the stars so we don't run out
+            // [NEW] Stretch Stars for Hyperspace Effect
+            this.starSystem.mesh.scaling.z = 60;
+
+            // Loop
             if (this.starSystem.mesh.position.z < -2000) {
                 this.starSystem.mesh.position.z = 2000;
             }
 
             // Hyperspace Tunnel FOV
-            this.scene.activeCamera.fov = BABYLON.Scalar.Lerp(this.scene.activeCamera.fov, 1.5, 0.05);
+            if (this.scene.activeCamera) {
+                this.scene.activeCamera.fov = BABYLON.Scalar.Lerp(this.scene.activeCamera.fov, 1.5, 0.05);
+            }
         } else {
             // DISENGAGE: Reset
             this.starSystem.mesh.position.z = 0;
-            // this.starSystem.mesh.scaling.z = 1; 
+            this.starSystem.mesh.scaling.z = 1; // [FIX] Reset Stretch
 
             // Return FOV
-            this.scene.activeCamera.fov = BABYLON.Scalar.Lerp(this.scene.activeCamera.fov, 0.8, 0.1);
+            if (this.scene.activeCamera) {
+                this.scene.activeCamera.fov = BABYLON.Scalar.Lerp(this.scene.activeCamera.fov, 0.8, 0.1);
+            }
         }
     },
 
@@ -497,9 +554,9 @@ window.spaceRenderer = {
         });
 
         // Debug Log (Periodic)
-        if (this.frame % 120 === 0 && nearestStation) {
-            console.log(`Docking Check: Closest=${nearestStation.name} Dist=${minDist.toFixed(1)}`);
-        }
+        // if (this.frame % 120 === 0 && nearestStation) {
+        //     console.log(`Docking Check: Closest=${nearestStation.name} Dist=${minDist.toFixed(1)}`);
+        // }
 
         // Threshold = 50 units
         if (nearestStation && minDist < 50) {
@@ -598,10 +655,12 @@ window.spaceRenderer = {
     createSpaceDust: function () {
         // Space Dust for Velocity Sensation
         this.dustSPS = new BABYLON.SolidParticleSystem("dustSPS", this.scene, { updatable: true });
-        var dustShape = BABYLON.MeshBuilder.CreatePlane("d", { size: 0.5 }, this.scene);
+        // [FIX] Increase Size significantly (0.5 -> 3.0) for visibility
+        // [FIX] Tuned Size (1.5) and Color (Silver) per user request
+        var dustShape = BABYLON.MeshBuilder.CreatePlane("d", { size: 1.5 }, this.scene);
 
-        // Add 400 particles
-        this.dustSPS.addShape(dustShape, 400);
+        // [FIX] Increase Density for "Speed Sensation"
+        this.dustSPS.addShape(dustShape, 2000);
         dustShape.dispose();
 
         var mesh = this.dustSPS.buildMesh();
@@ -609,9 +668,10 @@ window.spaceRenderer = {
 
         // Material
         var mat = new BABYLON.StandardMaterial("dustMat", this.scene);
-        mat.emissiveColor = new BABYLON.Color3(1, 1, 1);
+        mat.emissiveColor = new BABYLON.Color3(0.8, 0.8, 0.9); // Silver/White
+
         mat.disableLighting = true;
-        mat.alpha = 0.6;
+        mat.alpha = 0.8; // Brighten
         mesh.material = mat;
 
         // Init logic
@@ -878,8 +938,31 @@ window.spaceRenderer = {
         engine.position.z = -2;
         engine.parent = this.ship;
         var engineMat = new BABYLON.StandardMaterial("engineMat", this.scene);
-        engineMat.emissiveColor = new BABYLON.Color3(0, 0.5, 1); // Blue glow
+        engineMat.emissiveColor = new BABYLON.Color3(0, 0.2, 0.8); // Dim Blue (Idle)
         engine.material = engineMat;
+
+        this.ship.engineMat = engineMat; // [NEW] Expose for updates
+
+        // [NEW] Wingtip Trails
+        var leftTip = new BABYLON.TransformNode("leftTip", this.scene);
+        leftTip.parent = wings;
+        leftTip.position.x = -2.0; // Left Edge
+
+        var rightTip = new BABYLON.TransformNode("rightTip", this.scene);
+        rightTip.parent = wings;
+        rightTip.position.x = 2.0; // Right Edge
+
+        // Trails
+        var trailMat = new BABYLON.StandardMaterial("trailMat", this.scene);
+        trailMat.emissiveColor = new BABYLON.Color3(0.8, 0.8, 0.9); // Silver/White
+        trailMat.disableLighting = true;
+
+        // [FIX] Reduce Trail Size again (0.1 -> 0.05)
+        var trail1 = new BABYLON.TrailMesh("trail1", leftTip, this.scene, 0.05, 60, true);
+        trail1.material = trailMat;
+
+        var trail2 = new BABYLON.TrailMesh("trail2", rightTip, this.scene, 0.05, 60, true);
+        trail2.material = trailMat;
     },
 
     updateShip: function () {
@@ -893,9 +976,10 @@ window.spaceRenderer = {
         }
 
         var speed = 40; // Doubled Speed
-        var speed = 40; // Doubled Speed
+        var speed = 40; // Speed
         var forward = this.ship.forward;
         var movement = BABYLON.Vector3.Zero();
+        var isThrusting = false;
 
         // Autopilot
         if (this.autopilotTarget) {
@@ -906,10 +990,10 @@ window.spaceRenderer = {
 
             // Check distance
             var dist = BABYLON.Vector3.Distance(this.ship.position, targetPos);
-            if (dist < 20) { // [FIX] Fly closer (into the gate)
+            if (dist < 20) {
                 this.isCruising = false;
                 this.autopilotTarget = null;
-                this.frame = 0; // [NEW]Frame counter for periodic tasks
+                this.frame = 0;
                 console.log("Autopilot: Arrived at target.");
             }
         }
@@ -917,9 +1001,11 @@ window.spaceRenderer = {
         // Input or Autopilot Thrust
         if (this.inputMap["w"] || this.isCruising) {
             movement.addInPlace(forward);
+            isThrusting = true;
         }
         if (this.inputMap["s"]) {
             movement.subtractInPlace(forward);
+            isThrusting = true;
         }
 
         // Strafe
@@ -931,6 +1017,26 @@ window.spaceRenderer = {
         }
 
         this.ship.position.addInPlace(movement.scale(speed * dt));
+
+        // [NEW] Engine Glow Logic
+        if (this.ship.engineMat) {
+            if (isThrusting) {
+                this.ship.engineMat.emissiveColor = new BABYLON.Color3(0.5, 0.8, 1); // Bright White/Blue
+            } else {
+                this.ship.engineMat.emissiveColor = new BABYLON.Color3(0, 0.2, 0.8); // Dim Blue
+            }
+        }
+
+        // [NEW] Solar Wind (Dust Scaling)
+        if (this.dustMesh) {
+            if (this.isWarping) {
+                this.dustMesh.scaling.z = BABYLON.Scalar.Lerp(this.dustMesh.scaling.z, 40, 0.05); // Hyper Streak
+            } else if (isThrusting) {
+                this.dustMesh.scaling.z = BABYLON.Scalar.Lerp(this.dustMesh.scaling.z, 5, 0.1); // Speed Lines
+            } else {
+                this.dustMesh.scaling.z = BABYLON.Scalar.Lerp(this.dustMesh.scaling.z, 1, 0.1); // Dots
+            }
+        }
 
         // Rotation Banking (Visual Roll)
         // We smoothly interpolate the Z rotation (Roll) based on how hard we are turning

@@ -1,0 +1,30 @@
+
+    [JSInvokable]
+    public async Task LazyTrade()
+    {
+        // Find best station (Prefer Trading Post, else any)
+        var station = Galaxy.CurrentSystem.Stations.FirstOrDefault(s => s.Type == "Trading Post") 
+                      ?? Galaxy.CurrentSystem.Stations.FirstOrDefault();
+        
+        if (station != null)
+        {
+            Console.WriteLine($"Lazy Trade: Autopilot to {station.Name}");
+            // Station meshes are typically named "Station_StationId" or similiar.
+            // Wait, looking at spaceRenderer.createStation...
+            // Standard stations might just be meshes. 
+            // In spaceRenderer.js: createStation usually makes a mesh named after the station. 
+            // Let's assume mesh name is station.Name or check generator.
+            // Actually, best to target by Name if unique, or ID.
+            // Let's create a helper in JS or just try station.Name.
+            // Based on createStation in JS (which we should check), usually: "station_" + id or just Name.
+            // Let's assume Name for now as it's user facing, or check JS.
+            // Checking JS: createStation -> MeshBuilder.CreateBox("station_" + station.Id ...
+            
+            var meshName = "station_" + station.Id;
+            await JSRuntime.InvokeVoidAsync("spaceRenderer.engageAutopilotByName", meshName);
+        }
+        else
+        {
+            Console.WriteLine("Lazy Trade: No stations in sector.");
+        }
+    }

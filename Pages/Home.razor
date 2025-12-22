@@ -17,6 +17,11 @@
         </div>
     }
 
+    <!-- Control Hint -->
+    <div class="control-hint">
+        PRESS <span class="key">TAB</span> TO TOGGLE FLIGHT
+    </div>
+
     <!-- Docking Menu -->
     @if (isDocked && currentStation != null)
     {
@@ -41,34 +46,80 @@
                     </div>
                 </div>
 
-                <!-- Market -->
-                <div class="market-panel">
-                    <h3>Commodity Market</h3>
-                    <table class="table table-dark table-sm">
-                        <thead>
-                            <tr>
-                                <th>Item</th>
-                                <th>Price</th>
-                                <th>Cargo</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var item in currentStation.MarketData)
-                            {
+                <!-- Market (Standard Stations) -->
+                @if (currentStation.Type != "Shipyard")
+                {
+                    <div class="market-panel">
+                        <h3>Commodity Market</h3>
+                        <table class="table table-dark table-sm">
+                            <thead>
                                 <tr>
-                                    <td>@item.Key</td>
-                                    <td class="text-warning">@item.Value CR</td>
-                                    <td>@(State.Cargo.ContainsKey(item.Key) ? State.Cargo[item.Key] : 0)</td>
-                                    <td>
-                                        <button class="btn btn-primary btn-xs" @onclick="() => Buy(item.Key, item.Value)">Buy</button>
-                                        <button class="btn btn-success btn-xs" @onclick="() => Sell(item.Key, item.Value)">Sell</button>
-                                    </td>
+                                    <th>Item</th>
+                                    <th>Price</th>
+                                    <th>Cargo</th>
+                                    <th>Action</th>
                                 </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in currentStation.MarketData)
+                                {
+                                    <tr>
+                                        <td>@item.Key</td>
+                                        <td class="text-warning">@item.Value CR</td>
+                                        <td>@(State.Cargo.ContainsKey(item.Key) ? State.Cargo[item.Key] : 0)</td>
+                                        <td>
+                                            <div class="market-actions">
+                                                <button class="btn-action buy" @onclick="() => Buy(item.Key, item.Value)">BUY</button>
+                                                <button class="btn-action buy-max" @onclick="() => BuyMax(item.Key, item.Value)">MAX</button>
+                                                
+                                                <button class="btn-action sell" @onclick="() => Sell(item.Key, (int)(item.Value * 0.8))">SELL</button>
+                                                <button class="btn-action sell-max" @onclick="() => SellMax(item.Key, (int)(item.Value * 0.8))">MAX</button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+
+                <!-- Shipyard (Shipyard Only) -->
+                @if (currentStation.Type == "Shipyard")
+                {
+                    <div class="market-panel" style="width: 500px;">
+                        <h3>Shipyard Dealership</h3>
+                        <div class="ship-list">
+                            @foreach (var ship in SpaceBlazor.Models.ShipClass.Catalog)
+                            {
+                                var currentShip = State.CurrentShip; // The static def for Trade-In
+                                int tradeIn = (int)(currentShip.Price * 0.5f);
+                                int netCost = ship.Price - tradeIn;
+                                bool canAfford = State.Credits >= netCost;
+                                bool isOwned = State.CurrentShipClassId == ship.Id;
+
+                                <div class="ship-card @(isOwned ? "owned" : "")">
+                                    <div class="ship-header">
+                                        <span class="ship-name">@ship.Name</span>
+                                        <span class="ship-price">@(isOwned ? "OWNED" : $"{netCost:N0} CR")</span>
+                                    </div>
+                                    <div class="ship-stats">
+                                        <div>HP: @ship.MaxHull</div>
+                                        <div>Cargo: @ship.CargoCapacity</div>
+                                        <div>Speed: @ship.SpeedMultiplier x</div>
+                                        <div>Guns: @ship.Hardpoints</div>
+                                    </div>
+                                    <div class="ship-desc">@ship.Description</div>
+                                    @if (!isOwned)
+                                    {
+                                        <button class="btn btn-primary btn-sm btn-block" disabled="@(!canAfford)" @onclick="() => PurchaseShip(ship)">
+                                            PURCHASE (Trade-In: @tradeIn CR)
+                                        </button>
+                                    }
+                                </div>
                             }
-                        </tbody>
-                    </table>
-                </div>
+                        </div>
+                    </div>
+                }
             </div>
         </div>
     }
@@ -114,13 +165,22 @@
                 <!-- Systems -->
                 @foreach (var sys in Galaxy.Systems)
                 {
+                    // Determine Type Color
+                    string baseColor = "white"; // Default
+                    var mainStation = sys.Stations.FirstOrDefault();
+                    if (mainStation != null)
+                    {
+                        if (mainStation.Type == "Mining Array") baseColor = "#4da6ff"; // Blue (Ore)
+                        else if (mainStation.Type == "Trading Post") baseColor = "#ff8c00"; // Orange (Tech)
+                    }
+
                     <!-- Clickable Area -->
                     <circle cx="@sys.Coordinates.x" cy="@sys.Coordinates.z" r="30" fill="transparent" 
                             style="cursor: pointer; pointer-events: all;" @onmousedown:stopPropagation @onclick="() => SelectMapSystem(sys.Id)" />
 
                     <!-- Visual Dot -->
                     <circle cx="@sys.Coordinates.x" cy="@sys.Coordinates.z" r="@(sys == Galaxy.CurrentSystem ? 15 : 10)" 
-                            fill="@(sys == Galaxy.CurrentSystem ? "cyan" : (sys.Id == selectedMapSystemId ? "yellow" : "white"))" 
+                            fill="@(sys == Galaxy.CurrentSystem ? "cyan" : (sys.Id == selectedMapSystemId ? "yellow" : baseColor))" 
                             opacity="0.8" style="pointer-events: none;" />
                     
                     <!-- Always show Name (Default) -->
@@ -331,6 +391,46 @@
     .services-panel, .market-panel {
         width: 300px;
     }
+
+    /* Shipyard Styles */
+    .ship-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        max-height: 500px;
+        overflow-y: auto;
+    }
+    .ship-card {
+        background: rgba(0, 0, 0, 0.5);
+        border: 1px solid #444;
+        padding: 10px;
+        border-radius: 5px;
+    }
+    .ship-card.owned {
+        border-color: gold;
+        background: rgba(255, 215, 0, 0.1);
+    }
+    .ship-header {
+        display: flex;
+        justify-content: space-between;
+        font-weight: bold;
+        margin-bottom: 5px;
+        color: cyan;
+    }
+    .ship-price { color: lime; }
+    .ship-stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        font-size: 0.8rem;
+        color: #aaa;
+        margin-bottom: 5px;
+    }
+    .ship-desc {
+        font-size: 0.8rem;
+        font-style: italic;
+        color: #888;
+        margin-bottom: 8px;
+    }
     
     .services-panel h3, .market-panel h3 {
         border-bottom: 1px solid #555;
@@ -369,21 +469,65 @@
             await JSRuntime.InvokeVoidAsync("spaceRenderer.loadSystem", Galaxy.CurrentSystem);
             await JSRuntime.InvokeVoidAsync("spaceRenderer.resetShip"); // [FIX] Ensure safe spawn
             
-            // KEY LISTENERS (D for Dock, M for Map)
+            // KEY LISTENERS (D for Dock, M for Map, Shift+T for Lazy Trade)
             await JSRuntime.InvokeVoidAsync("eval", @"
                 document.addEventListener('keydown', (e) => { 
                     if (e.key.toLowerCase() === 'd') { window.spaceRenderer.dotNetRef.invokeMethodAsync('RequestDock'); }
                     if (e.key.toLowerCase() === 'm') { window.spaceRenderer.dotNetRef.invokeMethodAsync('ToggleMap'); }
+                    if (e.key.toLowerCase() === 't' && e.shiftKey) { window.spaceRenderer.dotNetRef.invokeMethodAsync('LazyTrade'); }
+                    if (e.key.toLowerCase() === 'y' && e.shiftKey) { window.spaceRenderer.dotNetRef.invokeMethodAsync('LazyShipyard'); }
                 })
             ");
         }
     }
 
     [JSInvokable]
-    public void ToggleMap()
+    public async Task ToggleMap()
     {
         showMap = !showMap;
+        if (showMap)
+        {
+             await JSRuntime.InvokeVoidAsync("spaceRenderer.exitFlightMode");
+        }
         StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task LazyTrade()
+    {
+        // 1. Find Priority Target (Trading Post)
+        var station = Galaxy.CurrentSystem.Stations.FirstOrDefault(s => s.Type == "Trading Post") 
+                      ?? Galaxy.CurrentSystem.Stations.FirstOrDefault();
+        
+        if (station != null)
+        {
+            Console.WriteLine($"Lazy Trade: Autopilot to {station.Name} ({station.Type})");
+            // Target the Root Node
+            var targetName = "stationRoot_" + station.Id;
+            await JSRuntime.InvokeVoidAsync("spaceRenderer.engageAutopilotByName", targetName);
+        }
+        else
+        {
+            Console.WriteLine("Lazy Trade: No stations found in this sector.");
+        }
+    }
+
+    [JSInvokable]
+    public async Task LazyShipyard()
+    {
+        // 1. Find Shipyard
+        var station = Galaxy.CurrentSystem.Stations.FirstOrDefault(s => s.Type == "Shipyard");
+        
+        if (station != null)
+        {
+            Console.WriteLine($"Lazy Shipyard: Autopilot to {station.Name}");
+            var targetName = "stationRoot_" + station.Id;
+            await JSRuntime.InvokeVoidAsync("spaceRenderer.engageAutopilotByName", targetName);
+        }
+        else
+        {
+            Console.WriteLine("Lazy Shipyard: No Shipyard detectable.");
+        }
     }
     
     private int GetRouteStatus(string id1, string id2)
@@ -489,7 +633,7 @@
         StateHasChanged();
     }
 
-    private void PlotRoute()
+    private async Task PlotRoute()
     {
         if (selectedMapSystemId == null) return;
         var route = Galaxy.GetRoute(Galaxy.CurrentSystem.Id, selectedMapSystemId);
@@ -507,6 +651,9 @@
             previewRoute.Clear(); // Clear preview, now it's active
             StateHasChanged();
             
+            // [NEW] Unlock cursor so user can click things
+            await JSRuntime.InvokeVoidAsync("spaceRenderer.exitFlightMode");
+
             ProcessNextAutoNavStep();
         }
     }
@@ -560,13 +707,17 @@
     private SpaceBlazor.Models.SpaceStation? currentStation;
 
     [JSInvokable]
-    public void RequestDock()
+    public async Task RequestDock()
     {
         if (canDock && !isDocked)
         {
             isDocked = true;
             // Find Station Data
             currentStation = Galaxy.CurrentSystem.Stations.FirstOrDefault(s => s.Id == dockStationId);
+            
+            // [NEW] Unlock Cursor
+            await JSRuntime.InvokeVoidAsync("spaceRenderer.exitFlightMode");
+            
             StateHasChanged();
         }
     }
@@ -606,12 +757,57 @@
         }
     }
 
+    private void BuyMax(string item, int price)
+    {
+        // Calculate max we can afford
+        int maxAfford = State.Credits / price;
+        // Calculate max space left
+        int maxSpace = State.CargoCapacity - State.GetCargoCount();
+        
+        // Take the smaller limit
+        int amount = Math.Min(maxAfford, maxSpace);
+        
+        if (amount > 0)
+        {
+            State.ModifyCredits(-(amount * price));
+            State.AddCargo(item, amount);
+        }
+    }
+
     private void Sell(string item, int price)
     {
         if (State.Cargo.ContainsKey(item) && State.Cargo[item] > 0)
         {
              State.ModifyCredits(price);
              State.RemoveCargo(item, 1);
+        }
+    }
+
+    private void SellMax(string item, int price)
+    {
+        if (State.Cargo.ContainsKey(item) && State.Cargo[item] > 0)
+        {
+            int amount = State.Cargo[item];
+            State.ModifyCredits(amount * price);
+            State.RemoveCargo(item, amount);
+        }
+    }
+
+    private void PurchaseShip(SpaceBlazor.Models.ShipClass ship)
+    {
+        // 1. Calculate Trade-In Value (50% of current ship price)
+        var currentShip = State.CurrentShip; // Refers to the definition
+        int tradeIn = (int)(currentShip.Price * 0.5f);
+        
+        // 2. Net Cost
+        int netCost = ship.Price - tradeIn;
+        
+        // 3. Purchase
+        if (State.Credits >= netCost)
+        {
+            State.ModifyCredits(-netCost);
+            State.BuyShip(ship);
+            StateHasChanged();
         }
     }
 
@@ -646,8 +842,8 @@
 
     private string GetTradeHint(string type)
     {
-        if (type == "Mining Array") return "⬇ SELL: Iron, Gold (Cheap) | ⬆ BUY: Electronics, Medical";
-        if (type == "Trading Post") return "⬇ SELL: Electronics, Medical | ⬆ BUY: Iron, Gold, Fuel";
+        if (type == "Mining Array") return "⬇ SELLS: Iron, Gold (Cheap) | ⬆ BUYS: Electronics, Medical";
+        if (type == "Trading Post") return "⬇ SELLS: Electronics, Medical | ⬆ BUYS: Iron, Gold, Fuel";
         return "Standard Market";
     }
 
@@ -656,3 +852,73 @@
         objRef?.Dispose();
     }
 }
+
+<style>
+    .dock-alert {
+        position: absolute;
+        top: 30%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-family: 'Consolas', monospace;
+        font-size: 2rem;
+        color: lime;
+        text-shadow: 0 0 10px lime;
+        background: rgba(0, 0, 0, 0.8);
+        padding: 20px;
+        border: 2px solid lime;
+        border-radius: 10px;
+        animation: blink 1s infinite alternate;
+        pointer-events: none;
+    }
+
+    .control-hint {
+        position: absolute;
+        top: 250px; /* Below HUD Status */
+        left: 20px;
+        font-family: 'Consolas', monospace;
+        font-size: 1rem;
+        color: rgba(0, 255, 0, 0.7);
+        text-shadow: 0 0 5px green;
+        background: rgba(0, 20, 0, 0.5);
+        padding: 5px 10px;
+        border: 1px solid rgba(0, 255, 0, 0.3);
+        border-radius: 5px;
+        pointer-events: none;
+    }
+
+    .key {
+        border: 1px solid white;
+        padding: 2px 6px;
+        border-radius: 4px;
+        color: white;
+        background: rgba(255, 255, 255, 0.1);
+        font-weight: bold;
+    }
+
+    .btn-action {
+        width: 60px;
+        padding: 5px;
+        font-size: 0.8rem;
+        cursor: pointer;
+        background: transparent;
+        color: white;
+        border: 1px solid #555;
+        transition: all 0.2s;
+    }
+    .buy { border-color: cyan; color: cyan; }
+    .buy:hover { background: rgba(0, 255, 255, 0.2); }
+    
+    .buy-max { border-color: #008888; color: #00aaaa; width: 40px; font-size: 0.7rem; }
+    .buy-max:hover { background: rgba(0, 150, 150, 0.4); color: white; }
+
+    .sell { border-color: orange; color: orange; }
+    .sell:hover { background: rgba(255, 165, 0, 0.2); }
+    
+    .sell-max { border-color: #aa6600; color: #cc8800; width: 40px; font-size: 0.7rem; }
+    .sell-max:hover { background: rgba(180, 100, 0, 0.4); color: white; }
+    
+    @@keyframes blink {
+        from { opacity: 0.5; box-shadow: 0 0 10px lime; }
+        to { opacity: 1; box-shadow: 0 0 20px lime; }
+    }
+</style>
