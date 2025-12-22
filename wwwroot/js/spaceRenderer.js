@@ -669,7 +669,7 @@ window.spaceRenderer = {
         var h = canvas.height;
         var cx = w / 2;
         var cy = h / 2;
-        var range = 2000; // Radar Range
+        var range = 5000; // [FIX] Increased from 2000 to 5000 to see full sector
 
         // Clear
         ctx.clearRect(0, 0, w, h);
@@ -678,35 +678,46 @@ window.spaceRenderer = {
         ctx.strokeStyle = "rgba(0, 255, 0, 0.3)";
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.arc(cx, cy, w / 2 - 5, 0, Math.PI * 2); // Outer
+        ctx.arc(cx, cy, w / 2 - 5, 0, Math.PI * 2); // Outer (5000)
         ctx.stroke();
         ctx.beginPath();
-        ctx.arc(cx, cy, w / 4, 0, Math.PI * 2); // Inner
+        ctx.arc(cx, cy, w / 4, 0, Math.PI * 2); // Inner (2500)
         ctx.stroke();
 
-        // Draw Ship (Center)
+        // Draw Ship (Rotating Arrow)
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(this.ship.rotation.y); // Rotate to match heading
+
         ctx.fillStyle = "cyan";
         ctx.beginPath();
-        ctx.moveTo(cx, cy - 3);
-        ctx.lineTo(cx + 3, cy + 3);
-        ctx.lineTo(cx - 3, cy + 3);
+        ctx.moveTo(0, -8); // Tip (Relative to Center)
+        ctx.lineTo(4, 5);
+        ctx.lineTo(-4, 5);
         ctx.fill();
+
+        // Heading Line
+        ctx.strokeStyle = "rgba(0, 255, 255, 0.5)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, -8);
+        ctx.lineTo(0, -20);
+        ctx.stroke();
+        ctx.restore();
 
         if (!this.shipBody || !this.systemMeshes) return;
 
-        // Draw Objects
+        // Draw Objects (Fixed Orientation)
         this.systemMeshes.forEach(m => {
             if (!m.isEnabled()) return;
 
             var relPos = m.position.subtract(this.shipBody.absolutePosition);
 
-            // Rotate by negative Ship Y rotation to align UP with Forward
-            var theta = -this.ship.rotation.y;
-            var rx = relPos.x * Math.cos(theta) - relPos.z * Math.sin(theta);
-            var rz = relPos.x * Math.sin(theta) + relPos.z * Math.cos(theta);
+            // [FIX] No rotation of the world. World is fixed (North Up).
+            var rx = relPos.x;
+            var rz = relPos.z;
 
             // Map x/z to canvas x/y (Radar is Top Down)
-            // Canvas X = rx, Canvas Y = -rz (because Z is forward)
             var mapX = cx + (rx / range) * (w / 2);
             var mapY = cy - (rz / range) * (h / 2);
 
