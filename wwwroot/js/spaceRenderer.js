@@ -433,7 +433,10 @@ window.spaceRenderer = {
                 }
 
                 if (mesh.name.startsWith("gate_")) {
-                    if (this.shipBody.intersectsMesh(mesh, true)) {
+                    // [FIX] Use Distance instead of Intersection (Torus has a hole!)
+                    var dist = BABYLON.Vector3.Distance(this.ship.position, mesh.absolutePosition);
+
+                    if (dist < 40) { // Radius of gate is 25 (Dia 50) + tolerance
                         var targetId = mesh.name.substring(5); // Remove "gate_" prefix
 
                         if (!this.isJumping) {
@@ -825,6 +828,7 @@ window.spaceRenderer = {
     createPlayerShip: function () {
         // Root Node (The actual physics center)
         this.ship = new BABYLON.TransformNode("PlayerShip", this.scene);
+        this.ship.position = new BABYLON.Vector3(0, 0, -200); // [FIX] Spawn safely away from Sun/Gates
 
         // Body (Cylinder)
         var body = BABYLON.MeshBuilder.CreateCylinder("body", { height: 4, diameterTop: 0, diameterBottom: 1.5, tessellation: 8 }, this.scene);
@@ -862,13 +866,15 @@ window.spaceRenderer = {
         var movement = BABYLON.Vector3.Zero();
 
         // Autopilot
-        if (this.autopilotTarget && this.autopilotTarget.position) {
-            this.ship.lookAt(this.autopilotTarget.position);
+        if (this.autopilotTarget) {
+            var targetPos = this.autopilotTarget.absolutePosition || this.autopilotTarget.position;
+
+            this.ship.lookAt(targetPos);
             this.isCruising = true; // Auto-engage thrust
 
             // Check distance
-            var dist = BABYLON.Vector3.Distance(this.ship.position, this.autopilotTarget.position);
-            if (dist < 200) {
+            var dist = BABYLON.Vector3.Distance(this.ship.position, targetPos);
+            if (dist < 20) { // [FIX] Fly closer (into the gate)
                 this.isCruising = false;
                 this.autopilotTarget = null;
                 console.log("Autopilot: Arrived at target.");
@@ -905,7 +911,7 @@ window.spaceRenderer = {
 
     resetShip: function () {
         if (this.ship) {
-            this.ship.position = new BABYLON.Vector3(0, 0, -50); // safe entry point
+            this.ship.position = new BABYLON.Vector3(0, 0, -200); // safe entry point
             this.ship.rotation = BABYLON.Vector3.Zero();
             this.ship.rotationQuaternion = null;
         }

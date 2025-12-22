@@ -87,9 +87,19 @@
                         var target = Galaxy.Systems.FirstOrDefault(s => s.Id == gate.TargetSystemId);
                         if (target != null)
                         {
+                            int status = GetRouteStatus(sys.Id, target.Id);
+                            // 3=Green, 2=Yellow, 1=Cyan, 0=Grey
+                            string color = status == 3 ? "lime" : (status == 2 ? "yellow" : (status == 1 ? "cyan" : "#444"));
+                            string width = status == 2 ? "5" : (status >= 1 ? "3" : "2");
+                            string opacity = status > 0 ? "1" : "0.5";
+                            string dash = status == 1 ? "5,5" : "none"; 
+
                             <line x1="@sys.Coordinates.x" y1="@sys.Coordinates.z" 
                                   x2="@target.Coordinates.x" y2="@target.Coordinates.z" 
-                                  stroke="#444" stroke-width="2" />
+                                  stroke="@color" 
+                                  stroke-width="@width"
+                                  opacity="@opacity"
+                                  stroke-dasharray="@dash" />
                         }
                     }
                 }
@@ -189,6 +199,7 @@
 
             // Load Initial System
             await JSRuntime.InvokeVoidAsync("spaceRenderer.loadSystem", Galaxy.CurrentSystem);
+            await JSRuntime.InvokeVoidAsync("spaceRenderer.resetShip"); // [FIX] Ensure safe spawn
             
             // KEY LISTENERS (D for Dock, M for Map)
             await JSRuntime.InvokeVoidAsync("eval", @"
@@ -207,12 +218,50 @@
         StateHasChanged();
     }
     
+    private int GetRouteStatus(string id1, string id2)
+    {
+        // 1. Check Active Navigation (Priority)
+        if (State.IsAutoNavigating && State.NavigationRoute.Count > 0)
+        {
+            var stops = State.NavigationRoute.ToList();
+            stops.Insert(0, Galaxy.CurrentSystem.Id); 
+
+            for (int i = 0; i < stops.Count - 1; i++)
+            {
+                if (stops[i] == id1 && stops[i+1] == id2) return 2; // Active (Yellow)
+            }
+        }
+        
+        // 2. Check History (Completed)
+        if (fullRoute != null && fullRoute.Count > 0)
+        {
+             for (int i = 0; i < fullRoute.Count - 1; i++)
+            {
+                if (fullRoute[i] == id1 && fullRoute[i+1] == id2) return 3; // Completed (Green)
+            }
+        }
+
+        // 3. Check Preview
+        if (previewRoute != null && previewRoute.Count > 0)
+        {
+             for (int i = 0; i < previewRoute.Count - 1; i++)
+            {
+                if (previewRoute[i] == id1 && previewRoute[i+1] == id2) return 1; // Preview (Cyan)
+            }
+        }
+
+        return 0; // None
+    }
+    
     // --- Auto Navigation ---
     private string? selectedMapSystemId;
-    
+    private List<string> previewRoute = new();
+    private List<string> fullRoute = new(); // [NEW] Track full history
+
     private void SelectMapSystem(string sysId)
     {
         selectedMapSystemId = sysId;
+        previewRoute = Galaxy.GetRoute(Galaxy.CurrentSystem.Id, sysId); // Calculate immediately
         StateHasChanged();
     }
 
@@ -222,14 +271,16 @@
         var route = Galaxy.GetRoute(Galaxy.CurrentSystem.Id, selectedMapSystemId);
         if (route.Any())
         {
+            // [NEW] Store full route for history visualization
+            fullRoute = new List<string>(route);
+            
             // Route contains full path including start. We need the sequence of *next* systems.
-            // Actually BFS returns [Start, Next, Next, End].
-            // We pop Start.
             if (route[0] == Galaxy.CurrentSystem.Id) route.RemoveAt(0);
             
             State.NavigationRoute = new Queue<string>(route);
             State.IsAutoNavigating = true;
-            showMap = false; // Close Map
+            // showMap = false; // [FIX] Keep map open to see the route
+            previewRoute.Clear(); // Clear preview, now it's active
             StateHasChanged();
             
             ProcessNextAutoNavStep();
@@ -270,6 +321,7 @@
     {
         State.IsAutoNavigating = false;
         State.NavigationRoute.Clear();
+        fullRoute.Clear(); // [FIX] Clear history
         StateHasChanged();
     }
 
@@ -344,8 +396,6 @@
     {
         // 1. Update C# State
         Galaxy.JumpTo(targetSystemId);
-        State.HasChanged(); // Update HUD
-        
         // AutoNav: Pop visited system
         if (State.IsAutoNavigating && State.NavigationRoute.Count > 0)
         {
@@ -354,6 +404,8 @@
                 State.NavigationRoute.Dequeue();
             }
         }
+        
+        StateHasChanged(); // [FIX] Update Map/HUD Forcefully
 
         // 2. Reload JS World
         await JSRuntime.InvokeVoidAsync("spaceRenderer.loadSystem", Galaxy.CurrentSystem);
