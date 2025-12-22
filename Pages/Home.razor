@@ -76,9 +76,16 @@
     <!-- Sector Map -->
     @if (showMap)
     {
-        <div class="map-overlay">
+        <div class="map-overlay" 
+             @onwheel="OnMapWheel" @onwheel:preventDefault
+             @onmousedown="OnMapMouseDown" @onmousemove="OnMapMouseMove" @onmouseup="OnMapMouseUp">
             <h1>SECTOR MAP</h1>
-            <svg viewBox="-1500 -1500 3000 3000" width="100%" height="100%">
+            <svg viewBox="@MapViewBox" width="100%" height="100%" style="pointer-events: none;">
+                <!-- NOTE: pointer-events: none on SVG allows clicks to pass through to elements IF they have pointer-events: auto.
+                     But we need the DIV to capture drag.
+                     Actually, SVG Elements (Circles) need to be clickable. 
+                     We should handle Drag on the DIV, but Click on the Circle bubbles? 
+                     Yes, distinct events. -->
                 <!-- Connections -->
                 @foreach (var sys in Galaxy.Systems)
                 {
@@ -109,22 +116,28 @@
                 {
                     <!-- Clickable Area -->
                     <circle cx="@sys.Coordinates.x" cy="@sys.Coordinates.z" r="30" fill="transparent" 
-                            style="cursor: pointer;" @onclick="() => SelectMapSystem(sys.Id)" />
+                            style="cursor: pointer; pointer-events: all;" @onmousedown:stopPropagation @onclick="() => SelectMapSystem(sys.Id)" />
 
                     <!-- Visual Dot -->
                     <circle cx="@sys.Coordinates.x" cy="@sys.Coordinates.z" r="@(sys == Galaxy.CurrentSystem ? 15 : 10)" 
                             fill="@(sys == Galaxy.CurrentSystem ? "cyan" : (sys.Id == selectedMapSystemId ? "yellow" : "white"))" 
                             opacity="0.8" style="pointer-events: none;" />
                     
+                    <!-- Always show Name (Default) -->
+                    @if (sys.Id != selectedMapSystemId && sys != Galaxy.CurrentSystem)
+                    {
+                        @((MarkupString)$"<text x='{sys.Coordinates.x}' y='{sys.Coordinates.z + 50}' fill='#ccc' text-anchor='middle' font-size='60' style='pointer-events: none; font-family: Arial;'>{sys.Name}</text>")
+                    }
+
                     @if (sys.Id == selectedMapSystemId)
                     {
                         <circle cx="@sys.Coordinates.x" cy="@sys.Coordinates.z" r="20" fill="none" stroke="yellow" stroke-width="2" />
-                        @:<text x="@sys.Coordinates.x" y="@(sys.Coordinates.z + 30)" fill="yellow" text-anchor="middle" font-size="20">@sys.Name</text>
+                        @((MarkupString)$"<text x='{sys.Coordinates.x}' y='{sys.Coordinates.z + 80}' fill='yellow' text-anchor='middle' font-size='100' font-weight='bold' style='pointer-events: none; font-family: Arial;'>{sys.Name}</text>")
                     }
 
                     @if (sys == Galaxy.CurrentSystem)
                     {
-                         @:<text x="@sys.Coordinates.x" y="@(sys.Coordinates.z - 25)" fill="cyan" text-anchor="middle" font-size="20">YOU</text>
+                         @((MarkupString)$"<text x='{sys.Coordinates.x}' y='{sys.Coordinates.z - 50}' fill='cyan' text-anchor='middle' font-size='80' font-weight='bold' style='font-family: Arial;'>YOU</text>")
                          <circle cx="@sys.Coordinates.x" cy="@sys.Coordinates.z" r="25" fill="none" stroke="cyan" stroke-width="2">
                              <animate attributeName="r" from="20" to="40" dur="1s" repeatCount="indefinite" />
                              <animate attributeName="opacity" from="1" to="0" dur="1s" repeatCount="indefinite" />
@@ -253,15 +266,71 @@
         return 0; // None
     }
     
+    // --- Map Zoom & Pan ---
+    private double mapX = -1500;
+    private double mapY = -1500;
+    private double mapWidth = 3000;
+    private double mapHeight = 3000;
+    private bool isDraggingMap = false;
+    private double lastMouseX, lastMouseY;
+
+    private string MapViewBox => $"{mapX} {mapY} {mapWidth} {mapHeight}";
+
+    private void OnMapWheel(WheelEventArgs e)
+    {
+        double zoomFactor = 1.1;
+        if (e.DeltaY > 0) // Zoom Out
+        {
+            mapWidth *= zoomFactor;
+            mapHeight *= zoomFactor;
+            mapX -= (mapWidth - (mapWidth / zoomFactor)) / 2;
+            mapY -= (mapHeight - (mapHeight / zoomFactor)) / 2;
+        }
+        else // Zoom In
+        {
+            mapWidth /= zoomFactor;
+            mapHeight /= zoomFactor;
+            mapX += (mapWidth * (zoomFactor - 1)) / 2;
+            mapY += (mapHeight * (zoomFactor - 1)) / 2;
+        }
+    }
+
+    private void OnMapMouseDown(MouseEventArgs e)
+    {
+        isDraggingMap = true;
+        lastMouseX = e.ClientX;
+        lastMouseY = e.ClientY;
+    }
+
+    private void OnMapMouseMove(MouseEventArgs e)
+    {
+        if (isDraggingMap)
+        {
+            double dx = e.ClientX - lastMouseX;
+            double dy = e.ClientY - lastMouseY;
+            
+            // Scale drag by zoom level
+            double scale = mapWidth / 1000.0; // Assume 1000px screen width approx
+            
+            mapX -= dx * scale;
+            mapY -= dy * scale;
+
+            lastMouseX = e.ClientX;
+            lastMouseY = e.ClientY;
+        }
+    }
+
+    private void OnMapMouseUp(MouseEventArgs e) => isDraggingMap = false;
+
     // --- Auto Navigation ---
     private string? selectedMapSystemId;
     private List<string> previewRoute = new();
-    private List<string> fullRoute = new(); // [NEW] Track full history
+    private List<string> fullRoute = new(); 
 
     private void SelectMapSystem(string sysId)
     {
         selectedMapSystemId = sysId;
-        previewRoute = Galaxy.GetRoute(Galaxy.CurrentSystem.Id, sysId); // Calculate immediately
+        previewRoute = Galaxy.GetRoute(Galaxy.CurrentSystem.Id, sysId); 
         StateHasChanged();
     }
 
