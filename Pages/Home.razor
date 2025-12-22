@@ -8,12 +8,175 @@
 
 <div style="position: relative; width: 100vw; height: 100vh; overflow: hidden;">
     <Hud />
+    
+    <!-- Docking Alert -->
+    @if (canDock)
+    {
+        <div class="dock-alert">
+            PRESS <span class="key">D</span> TO DOCK
+        </div>
+    }
+
+    <!-- Docking Menu -->
+    @if (isDocked && currentStation != null)
+    {
+        <div class="dock-menu">
+            <div class="dock-header">
+                <h1>@currentStation.Name</h1>
+                <span class="station-type">@currentStation.Type</span>
+                <button class="btn btn-danger btn-sm" @onclick="Undock">UNDOCK</button>
+            </div>
+
+            <div class="dock-content">
+                <!-- Services -->
+                <div class="services-panel">
+                    <h3>Services</h3>
+                    <div class="service-row">
+                        <span>Refuel (1cr)</span>
+                        <button class="btn btn-warning btn-sm" @onclick="RefuelShip" disabled="@(State.Fuel >= State.MaxFuel || State.Credits < 10)">Fill Up</button>
+                    </div>
+                     <div class="service-row">
+                        <span>Repair Hull (10cr)</span>
+                        <button class="btn btn-success btn-sm" @onclick="RepairShip" disabled="@(State.Hull >= State.MaxHull || State.Credits < 50)">Repair All</button>
+                    </div>
+                </div>
+
+                <!-- Market -->
+                <div class="market-panel">
+                    <h3>Commodity Market</h3>
+                    <table class="table table-dark table-sm">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th>Price</th>
+                                <th>Cargo</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in currentStation.MarketData)
+                            {
+                                <tr>
+                                    <td>@item.Key</td>
+                                    <td class="text-warning">@item.Value CR</td>
+                                    <td>@(State.Cargo.ContainsKey(item.Key) ? State.Cargo[item.Key] : 0)</td>
+                                    <td>
+                                        <button class="btn btn-primary btn-xs" @onclick="() => Buy(item.Key, item.Value)">Buy</button>
+                                        <button class="btn btn-success btn-xs" @onclick="() => Sell(item.Key, item.Value)">Sell</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Sector Map -->
+    @if (showMap)
+    {
+        <div class="map-overlay">
+            <h1>SECTOR MAP</h1>
+            <svg viewBox="-1500 -1500 3000 3000" width="100%" height="100%">
+                <!-- Connections -->
+                @foreach (var sys in Galaxy.Systems)
+                {
+                    foreach (var gate in sys.JumpGates)
+                    {
+                        var target = Galaxy.Systems.FirstOrDefault(s => s.Id == gate.TargetSystemId);
+                        if (target != null)
+                        {
+                            <line x1="@sys.Coordinates.x" y1="@sys.Coordinates.z" 
+                                  x2="@target.Coordinates.x" y2="@target.Coordinates.z" 
+                                  stroke="#444" stroke-width="2" />
+                        }
+                    }
+                }
+
+                <!-- Systems -->
+                @foreach (var sys in Galaxy.Systems)
+                {
+                    <!-- Clickable Area -->
+                    <circle cx="@sys.Coordinates.x" cy="@sys.Coordinates.z" r="30" fill="transparent" 
+                            style="cursor: pointer;" @onclick="() => SelectMapSystem(sys.Id)" />
+
+                    <!-- Visual Dot -->
+                    <circle cx="@sys.Coordinates.x" cy="@sys.Coordinates.z" r="@(sys == Galaxy.CurrentSystem ? 15 : 10)" 
+                            fill="@(sys == Galaxy.CurrentSystem ? "cyan" : (sys.Id == selectedMapSystemId ? "yellow" : "white"))" 
+                            opacity="0.8" style="pointer-events: none;" />
+                    
+                    @if (sys.Id == selectedMapSystemId)
+                    {
+                        <circle cx="@sys.Coordinates.x" cy="@sys.Coordinates.z" r="20" fill="none" stroke="yellow" stroke-width="2" />
+                        @:<text x="@sys.Coordinates.x" y="@(sys.Coordinates.z + 30)" fill="yellow" text-anchor="middle" font-size="20">@sys.Name</text>
+                    }
+
+                    @if (sys == Galaxy.CurrentSystem)
+                    {
+                         @:<text x="@sys.Coordinates.x" y="@(sys.Coordinates.z - 25)" fill="cyan" text-anchor="middle" font-size="20">YOU</text>
+                         <circle cx="@sys.Coordinates.x" cy="@sys.Coordinates.z" r="25" fill="none" stroke="cyan" stroke-width="2">
+                             <animate attributeName="r" from="20" to="40" dur="1s" repeatCount="indefinite" />
+                             <animate attributeName="opacity" from="1" to="0" dur="1s" repeatCount="indefinite" />
+                         </circle>
+                    }
+                }
+            </svg>
+            <div class="map-controls">
+                @if (selectedMapSystemId != null && selectedMapSystemId != Galaxy.CurrentSystem.Id)
+                {
+                    <button class="btn btn-warning" @onclick="PlotRoute" style="margin-right: 20px; font-size: 1.2rem;">PLOT JUMP ROUTE</button>
+                }
+                <p>Press <span class="key">M</span> to Close</p>
+            </div>
+        </div>
+    }
+
     <canvas id="renderCanvas" style="width: 100%; height: 100%; touch-action: none; outline: none;" tabindex="1"></canvas>
 </div>
 
+<style>
+    /* ... existing styles ... */
+    
+    .map-overlay {
+        position: absolute;
+        top: 0; left: 0;
+        width: 100vw; height: 100vh;
+        background: rgba(0, 5, 10, 0.95);
+        z-index: 3000;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+    }
+    
+    .map-overlay h1 {
+        color: cyan;
+        margin-bottom: 10px;
+        text-shadow: 0 0 10px cyan;
+    }
+    
+    .map-controls {
+        position: absolute;
+        bottom: 20px;
+        color: white;
+    }
+
+    /* ... existing dock styles ... */
+    .dock-menu {
+        /* ... */
+}
+</style>
+
 @code {
     private DotNetObjectReference<Home>? objRef;
+    private bool canDock = false;
+    private string? dockStationId;
+    private bool isDocked = false;
+    private bool showMap = false;
 
+    // ... existing startup ...
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
@@ -26,6 +189,153 @@
 
             // Load Initial System
             await JSRuntime.InvokeVoidAsync("spaceRenderer.loadSystem", Galaxy.CurrentSystem);
+            
+            // KEY LISTENERS (D for Dock, M for Map)
+            await JSRuntime.InvokeVoidAsync("eval", @"
+                document.addEventListener('keydown', (e) => { 
+                    if (e.key.toLowerCase() === 'd') { window.spaceRenderer.dotNetRef.invokeMethodAsync('RequestDock'); }
+                    if (e.key.toLowerCase() === 'm') { window.spaceRenderer.dotNetRef.invokeMethodAsync('ToggleMap'); }
+                })
+            ");
+        }
+    }
+
+    [JSInvokable]
+    public void ToggleMap()
+    {
+        showMap = !showMap;
+        StateHasChanged();
+    }
+    
+    // --- Auto Navigation ---
+    private string? selectedMapSystemId;
+    
+    private void SelectMapSystem(string sysId)
+    {
+        selectedMapSystemId = sysId;
+        StateHasChanged();
+    }
+
+    private void PlotRoute()
+    {
+        if (selectedMapSystemId == null) return;
+        var route = Galaxy.GetRoute(Galaxy.CurrentSystem.Id, selectedMapSystemId);
+        if (route.Any())
+        {
+            // Route contains full path including start. We need the sequence of *next* systems.
+            // Actually BFS returns [Start, Next, Next, End].
+            // We pop Start.
+            if (route[0] == Galaxy.CurrentSystem.Id) route.RemoveAt(0);
+            
+            State.NavigationRoute = new Queue<string>(route);
+            State.IsAutoNavigating = true;
+            showMap = false; // Close Map
+            StateHasChanged();
+            
+            ProcessNextAutoNavStep();
+        }
+    }
+    
+    private async void ProcessNextAutoNavStep()
+    {
+        if (!State.IsAutoNavigating || State.NavigationRoute.Count == 0)
+        {
+            State.IsAutoNavigating = false;
+            return;
+        }
+
+        var nextSystemId = State.NavigationRoute.Peek();
+        
+        // Find Gate to this system
+        var gate = Galaxy.CurrentSystem.JumpGates.FirstOrDefault(g => g.TargetSystemId == nextSystemId);
+        if (gate != null)
+        {
+             // Trigger JS to Fly to this Gate
+             // We need to find the JS mesh name. 
+             // In spaceRenderer, gates are named "gateRoot_[TargetSystemId]" (Node) and "gate_[TargetSystemId]" (Mesh)
+             // getMeshByName only finds Meshes, so we target "gate_"
+             var meshName = "gate_" + nextSystemId;
+             Console.WriteLine($"AutoNav: Flying to {meshName}");
+             await JSRuntime.InvokeVoidAsync("spaceRenderer.engageAutopilotByName", meshName);
+        }
+        else
+        {
+            Console.WriteLine("AutoNav Error: Gate not found!");
+            State.IsAutoNavigating = false;
+        }
+    }
+    
+    [JSInvokable]
+    public void CancelAutoNav()
+    {
+        State.IsAutoNavigating = false;
+        State.NavigationRoute.Clear();
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void SetDockingAvailable(bool available, string? stationId)
+    {
+        canDock = available;
+        dockStationId = stationId;
+        StateHasChanged();
+    }
+
+    private SpaceBlazor.Models.SpaceStation? currentStation;
+
+    [JSInvokable]
+    public void RequestDock()
+    {
+        if (canDock && !isDocked)
+        {
+            isDocked = true;
+            // Find Station Data
+            currentStation = Galaxy.CurrentSystem.Stations.FirstOrDefault(s => s.Id == dockStationId);
+            StateHasChanged();
+        }
+    }
+
+    private void Undock()
+    {
+        isDocked = false;
+        currentStation = null;
+    }
+
+    private void RefuelShip()
+    {
+        int cost = 1;
+        if (State.Credits >= cost && State.Fuel < State.MaxFuel)
+        {
+            State.ModifyCredits(-cost);
+            State.Refuel(10); // +10 Fuel
+        }
+    }
+
+    private void RepairShip()
+    {
+        int cost = 10;
+        if (State.Credits >= cost && State.Hull < State.MaxHull)
+        {
+             State.ModifyCredits(-cost);
+             State.Repair(10); // +10 Hull
+        }
+    }
+
+    private void Buy(string item, int price)
+    {
+        if (State.Credits >= price && State.GetCargoCount() < State.CargoCapacity)
+        {
+             State.ModifyCredits(-price);
+             State.AddCargo(item, 1);
+        }
+    }
+
+    private void Sell(string item, int price)
+    {
+        if (State.Cargo.ContainsKey(item) && State.Cargo[item] > 0)
+        {
+             State.ModifyCredits(price);
+             State.RemoveCargo(item, 1);
         }
     }
 
@@ -35,15 +345,27 @@
         // 1. Update C# State
         Galaxy.JumpTo(targetSystemId);
         State.HasChanged(); // Update HUD
+        
+        // AutoNav: Pop visited system
+        if (State.IsAutoNavigating && State.NavigationRoute.Count > 0)
+        {
+            if (State.NavigationRoute.Peek() == targetSystemId)
+            {
+                State.NavigationRoute.Dequeue();
+            }
+        }
 
         // 2. Reload JS World
         await JSRuntime.InvokeVoidAsync("spaceRenderer.loadSystem", Galaxy.CurrentSystem);
         
-        // 3. Reset Ship Position? (Ideally, spawn at the gate you entered from)
-        // For now, let's just keep position or reset to center? 
-        // Best to reset to (0,0,0) or near the gate.
-        // Let's reset ship:
         await JSRuntime.InvokeVoidAsync("spaceRenderer.resetShip");
+        
+        // AutoNav: Continue?
+        if (State.IsAutoNavigating)
+        {
+            await Task.Delay(1000); // Wait for load
+            ProcessNextAutoNavStep();
+        }
     }
 
     public void Dispose()

@@ -43,6 +43,10 @@ namespace SpaceBlazor.Services
 
                 // Planets (1-3 planets)
                 int planetCount = rng.Next(1, 4);
+                
+                // Track where to put the Station (near Planet 0)
+                Vec3 stationPos = null;
+
                 for(int p=0; p<planetCount; p++)
                 {
                     // Push planets WAY out (Outer System)
@@ -54,14 +58,33 @@ namespace SpaceBlazor.Services
                     float pz = (float)(Math.Sin(angle) * radius);
                     float py = rng.Next(-200, 200);
 
-                    sys.Planets.Add(new Planet 
+                    var planet = new Planet 
                     {
                         Name = $"{sys.Name} {ToRoman(p+1)}",
                         Type = rng.NextDouble() > 0.5 ? "Gas Giant" : "Rocky",
                         Position = new Vec3(px, py, pz),
                         Size = rng.Next(100, 400) // Huge distant worlds
-                    });
+                    };
+                    sys.Planets.Add(planet);
+
+                    // Place station near the first planet (offset by 500 units so it's not inside it)
+                    if (p == 0)
+                    {
+                        stationPos = new Vec3(px + 300, py + 50, pz + 300);
+                    }
                 }
+
+                // Create Station
+                if (stationPos == null) stationPos = new Vec3(1000, 0, 1000); // Fallback
+
+                var station = new SpaceStation
+                {
+                    Name = $"{sys.Name} Outpost",
+                    Type = rng.NextDouble() > 0.5 ? "Trading Post" : "Mining Array",
+                    Position = stationPos
+                };
+                GenerateMarket(station, rng); // [NEW] Generate Prices
+                sys.Stations.Add(station);
 
                 Systems.Add(sys);
             }
@@ -131,6 +154,66 @@ namespace SpaceBlazor.Services
             {
                 CurrentSystem = target;
             }
+        }
+
+        private void GenerateMarket(SpaceStation station, Random rng)
+        {
+            foreach (var com in Commodities)
+            {
+                // Base Price +/- 50%
+                var variance = rng.NextDouble() * 0.5 - 0.25; // -25% to +25%
+                var price = (int)(com.BasePrice * (1 + variance));
+                if (price < 1) price = 1;
+
+                // Type Modifiers
+                if (station.Type == "Mining Array" && com.Category == "Ore") price = (int)(price * 0.6); // Cheap Ore
+                if (station.Type == "Trading Post" && com.Category == "Tech") price = (int)(price * 1.2); // Expensive Tech
+
+                station.MarketData[com.Name] = price;
+            }
+        }
+
+        public static List<Commodity> Commodities = new()
+        {
+            new Commodity { Name = "Iron Ore", BasePrice = 20, Category = "Ore" },
+            new Commodity { Name = "Gold", BasePrice = 200, Category = "Ore" },
+            new Commodity { Name = "Hydrogen Fuel", BasePrice = 10, Category = "Fuel" },
+            new Commodity { Name = "Water", BasePrice = 5, Category = "Essentials" },
+            new Commodity { Name = "Electronics", BasePrice = 150, Category = "Tech" },
+            new Commodity { Name = "Medical Supplies", BasePrice = 300, Category = "Tech" }
+        };
+
+        public List<string> GetRoute(string startId, string endId)
+        {
+            if (startId == endId) return new List<string>();
+
+            // BFS
+            var queue = new Queue<List<string>>();
+            queue.Enqueue(new List<string> { startId });
+            var visited = new HashSet<string> { startId };
+
+            while (queue.Count > 0)
+            {
+                var path = queue.Dequeue();
+                var currentId = path.Last();
+
+                if (currentId == endId) return path;
+
+                var sys = Systems.FirstOrDefault(s => s.Id == currentId);
+                if (sys == null) continue;
+
+                foreach (var gate in sys.JumpGates)
+                {
+                    if (!visited.Contains(gate.TargetSystemId))
+                    {
+                        visited.Add(gate.TargetSystemId);
+                        var newPath = new List<string>(path) { gate.TargetSystemId };
+                        queue.Enqueue(newPath);
+                    }
+                }
+            }
+
+            return new List<string>(); // No path found
         }
     }
 }

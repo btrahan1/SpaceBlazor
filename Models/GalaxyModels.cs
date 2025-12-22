@@ -23,6 +23,7 @@ namespace SpaceBlazor.Models
         
         public List<JumpGate> JumpGates { get; set; } = new();
         public List<Planet> Planets { get; set; } = new();
+        public List<SpaceStation> Stations { get; set; } = new();
 
         public Vec3 Coordinates { get; set; }
     }
@@ -40,5 +41,23 @@ namespace SpaceBlazor.Models
         public string Type { get; set; }
         public Vec3 Position { get; set; }
         public float Size { get; set; }
+    }
+
+    public class SpaceStation
+    {
+        public string Id { get; set; } = Guid.NewGuid().ToString();
+        public string Name { get; set; }
+        public Vec3 Position { get; set; }
+        public string Type { get; set; } // Outpost, Starbase, Mining Platform
+        
+        // Commodity Name -> Price
+        public Dictionary<string, int> MarketData { get; set; } = new();
+    }
+
+    public class Commodity
+    {
+        public string Name { get; set; }
+        public int BasePrice { get; set; }
+        public string Category { get; set; } // Ore, Tech, Fuel
     }
 }

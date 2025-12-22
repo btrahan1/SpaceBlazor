@@ -33,9 +33,26 @@
         <div class="system-name">System: @Galaxy.CurrentSystem.Name</div>
         <div class="credits">@State.Credits.ToString("N0") CR</div>
     </div>
+
+    <!-- Bottom Center: Radar -->
+    <div class="hud-panel radar-panel">
+        <canvas id="radarCanvas" width="200" height="200"></canvas>
+    </div>
 </div>
 
 <style>
+    .radar-panel {
+        position: absolute;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 220px;
+        height: 220px;
+        border-radius: 50%;
+        background: rgba(0, 20, 0, 0.8);
+        border: 2px solid cyan;
+    }
+
     .hud-container {
         position: absolute;
         top: 0;
