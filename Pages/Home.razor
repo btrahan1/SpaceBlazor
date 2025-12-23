@@ -1188,6 +1188,31 @@
         StateHasChanged();
     }
 
+    [JSInvokable]
+    public async Task TakeDamage(int damage)
+    {
+        if (isInPlanet) return; // Safe zone
+        
+        State.TakeDamage(damage); // [FIX] Use GameState logic (Shields first)
+        
+        if (State.Hull <= 0)
+        {
+            State.Hull = 0;
+            // Death Logic
+            await JSRuntime.InvokeVoidAsync("spaceRenderer.createExplosion", State.PositionX, State.PositionY, State.PositionZ);
+            // Simple Respawn for now:
+            State.Hull = State.MaxHull;
+            State.Shield = State.MaxShield; // [FIX] Restore Shields too
+            State.Credits = Math.Max(0, State.Credits - 500); // Penalty
+            await JSRuntime.InvokeVoidAsync("alert", "SHIP DESTROYED! Emergency System Jump engaged. Fee: 500cr");
+            
+            // Jump to random system or just reset pos?
+            // Just reset pos for now
+            await JSRuntime.InvokeVoidAsync("spaceRenderer.resetShip");
+        }
+        StateHasChanged();
+    }
+
     private async Task LaunchFromPlanet()
     {
         isInPlanet = false;
@@ -1210,6 +1235,12 @@
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
         while (await timer.WaitForNextTickAsync())
         {
+            // Passive Shield Regen (2.5 per sec)
+            if (!isInPlanet && State.Shield < State.MaxShield) 
+            {
+                State.RechargeShield(5);
+            }
+
             if (State.IsMultiplayerEnabled)
             {
                 await RefreshRemotePlayers();

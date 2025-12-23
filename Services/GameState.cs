@@ -30,8 +30,8 @@ namespace SpaceBlazor.Services
             set { _callsign = value; NotifyStateChanged(); } 
         }
         public string SessionId { get; set; } = Guid.NewGuid().ToString().Substring(0, 8);
-        public int Credits { get; private set; } = 50000;
-        public int Hull { get; private set; } = 100;
+        public int Credits { get; set; } = 50000;
+        public int Hull { get; set; } = 100;
         // Ship Data
         public string CurrentShipClassId { get; private set; } = "sidewinder";
         public Models.ShipClass CurrentShip => Models.ShipClass.Catalog.FirstOrDefault(s => s.Id == CurrentShipClassId);
@@ -42,9 +42,14 @@ namespace SpaceBlazor.Services
         public float SpeedMultiplier { get; private set; } = 1.0f;
 
         // Missing Members (Restoring)
-        public int Shield { get; private set; } = 50;
+        public int Shield { get; set; } = 50;
         public int MaxShield { get; private set; } = 50;
-        public int Fuel { get; private set; } = 50; // [FIX] Initial Fuel = MaxFuel (50)
+        public int Fuel { get; set; } = 50; // [FIX] Initial Fuel = MaxFuel (50)
+        
+        // [NEW] Position Tracking (for Death/Respawn)
+        public int PositionX { get; set; }
+        public int PositionY { get; set; }
+        public int PositionZ { get; set; }
         
         // Navigation
         public Queue<string> NavigationRoute { get; set; } = new();
