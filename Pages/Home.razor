@@ -1121,7 +1121,7 @@
 
     private async Task OpenDonation()
     {
-        await JSRuntime.InvokeVoidAsync("open", "https://buymeacoffee.com/bartman66", "_blank");
+        await JSRuntime.InvokeVoidAsync("spaceRenderer.openExternalLink", "https://buymeacoffee.com/bartman66");
     }
 
     private async Task RunAutoSaveLoop()

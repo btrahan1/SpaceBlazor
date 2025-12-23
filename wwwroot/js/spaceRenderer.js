@@ -462,6 +462,11 @@ window.spaceRenderer = {
         console.log("Flight Mode: ENGAGED (Launch)");
     },
 
+    // [NEW] Safe Open Link (Fixes 'Illegal Invocation' errors)
+    openExternalLink: function (url) {
+        window.open(url, '_blank');
+    },
+
     // Restore Pointer Lock
     setupPointerLock: function () {
         // [NEW] Click Canvas to Engage Flight Mode (First Interaction)
