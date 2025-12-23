@@ -1596,18 +1596,35 @@ window.spaceRenderer = {
 
     // [NEW] Call this when entering a new sector to respawn enemies
     resetCombat: function () {
-        // Clear old
+        // Clear Enemies
         if (this.enemies) {
-            this.enemies.forEach(e => { if (e.visual) e.visual.dispose(); e.dispose(); });
+            this.enemies.forEach(e => {
+                if (e.visual) {
+                    e.visual.dispose(); // Raider Visual
+                }
+                if (e.hitbox) {
+                    e.hitbox.dispose(); // Debug Hitbox
+                }
+                e.dispose(); // Main Root/Mesh
+            });
         }
+
+        // Clear Projectiles
         if (this.enemyProjectiles) {
             this.enemyProjectiles.forEach(p => p.dispose());
         }
 
+        // Clear Player Lasers (Optional, but good hygiene)
+        if (this.lasers) {
+            this.lasers.forEach(l => l.dispose());
+        }
+
         this.enemies = [];
         this.enemyProjectiles = [];
+        this.lasers = [];
 
-        // Spawn New
+        // Spawn New (unless docked?)
+        // [FIX] Don't spawn if we are immediately docking, but for now Standard behavior:
         this.createEnemies();
         this.createRaiders();
     },
