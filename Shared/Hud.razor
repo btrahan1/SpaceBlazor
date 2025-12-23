@@ -1,11 +1,16 @@
 @inject SpaceBlazor.Services.GameState State
 @inject SpaceBlazor.Services.GalaxyService Galaxy
 @inject SpaceBlazor.Services.PersistenceService Persist
+@inject SpaceBlazor.Services.FirebaseService Firebase
 @inject IJSRuntime JSRuntime
+@using SpaceBlazor.Services
+@using SpaceBlazor.Pages
 @implements IDisposable
 
 @code {
     private SaveLoadModal saveModal;
+    [CascadingParameter] public Home? ParentHome { get; set; }
+    private bool isSyncing = false;
 
     protected override void OnInitialized()
     {
@@ -23,7 +28,18 @@
 
     private async Task OpenSave()
     {
-        await saveModal.Show("SAVE");
+        if (State.IsMultiplayerEnabled && ParentHome != null)
+        {
+            isSyncing = true;
+            StateHasChanged();
+            await ParentHome.TriggerCloudSave();
+            await Task.Delay(1000); // Visual feedback
+            isSyncing = false;
+        }
+        else
+        {
+            await saveModal.Show("SAVE");
+        }
     }
 
     private async Task OpenLoad()
@@ -43,39 +59,88 @@
     {
         Console.WriteLine("Game Loaded via Modal.");
     }
+
+    private string chatInput = "";
+    private async Task SendChatMessage()
+    {
+        if (string.IsNullOrWhiteSpace(chatInput)) return;
+
+        var msg = new ChatMessage {
+            Sender = State.Callsign,
+            Text = chatInput,
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            SystemId = Galaxy.CurrentSystem.Id
+        };
+
+        // Push to Firebase (Sector Path)
+        await Firebase.PushNodeAsync($"sectors/{Galaxy.CurrentSystem.Id}/chat", msg);
+        
+        chatInput = ""; // Clear
+        StateHasChanged();
+    }
+
+    private async Task OnKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SendChatMessage();
+        }
+    }
 }
 
 <div class="hud-container">
-    <!-- Top Left: Ship Status -->
-    <div class="hud-panel status-panel">
-        <div class="status-row" style="border-bottom: 1px solid #004400; padding-bottom: 5px; margin-bottom: 10px; justify-content: center;">
-             <span style="color: cyan; font-weight: bold; font-size: 1.1em;">@State.CurrentShip.Name.ToUpper()</span>
-        </div>
-        <div class="status-row">
-            <span class="label">SHIELD</span>
-            <div class="bar-container">
-                <div class="bar shield-bar" style="width: @(GetShieldPct())%"></div>
+    <!-- Top Left Group -->
+    <div class="left-column">
+        <div class="hud-panel status-panel">
+            <div class="status-row" style="border-bottom: 1px solid #004400; padding-bottom: 5px; margin-bottom: 10px; justify-content: center;">
+                 <span style="color: cyan; font-weight: bold; font-size: 1.1em;">@State.CurrentShip.Name.ToUpper()</span>
             </div>
-            <span class="value">@State.Shield</span>
-        </div>
-        <div class="status-row">
-            <span class="label">HULL</span>
-            <div class="bar-container">
-                <div class="bar hull-bar" style="width: @(GetHullPct())%"></div>
+            <div class="status-row">
+                <span class="label">SHIELD</span>
+                <div class="bar-container">
+                    <div class="bar shield-bar" style="width: @(GetShieldPct())%"></div>
+                </div>
+                <span class="value">@State.Shield</span>
             </div>
-            <span class="value">@State.Hull</span>
-        </div>
-        <div class="status-row">
-            <span class="label">FUEL</span>
-            <div class="bar-container">
-                <div class="bar fuel-bar" style="width: @(GetFuelPct())%"></div>
+            <div class="status-row">
+                <span class="label">HULL</span>
+                <div class="bar-container">
+                    <div class="bar hull-bar" style="width: @(GetHullPct())%"></div>
+                </div>
+                <span class="value">@State.Hull</span>
             </div>
-             <span class="value">@State.Fuel</span>
+            <div class="status-row">
+                <span class="label">FUEL</span>
+                <div class="bar-container">
+                    <div class="bar fuel-bar" style="width: @(GetFuelPct())%"></div>
+                </div>
+                 <span class="value">@State.Fuel</span>
+            </div>
+        </div>
+
+        <!-- Controls Panel -->
+        <div class="hud-panel controls-panel">
+            <div class="panel-header">SYSTEM CONTROLS</div>
+            <div class="key-row"><span class="k">W A S D</span> <span>Throttle/Strafe</span></div>
+            <div class="key-row"><span class="k">MOUSE</span> <span>Pitch/Yaw</span></div>
+            <div class="key-row"><span class="k">SPACE</span> <span>Fire Cannons</span></div>
+            <div class="key-row"><span class="k">SHIFT+R</span> <span>Toggle Cruise</span></div>
+            <div class="key-row"><span class="k">L</span> <span>Initiate Landing</span></div>
+            <div class="key-row"><span class="k">SHIFT+L</span> <span>Auto-Land (Dev)</span></div>
+            <div class="key-row"><span class="k">M</span> <span>Sector Map</span></div>
+            <div class="key-row"><span class="k">TAB</span> <span>Toggle Cursor</span></div>
+            <div class="key-row"><span class="k">SHIFT+T</span> <span>Trade (Dev)</span></div>
+            <div class="key-row"><span class="k">SHIFT+Y</span> <span>Shipyard (Dev)</span></div>
         </div>
     </div>
 
     <!-- Top Right: Economy -->
     <div class="hud-panel eco-panel">
+        <div class="pilot-id">PILOT: @State.Callsign.ToUpper()</div>
+        @if (State.IsMultiplayerEnabled)
+        {
+            <div class="multi-tag">FEDERATION NET LIVE</div>
+        }
         <div class="system-name">System: @Galaxy.CurrentSystem.Name</div>
         <div class="credits">@State.Credits.ToString("N0") CR</div>
         
@@ -103,9 +168,12 @@
                 <input type="checkbox" @bind="isMuted" style="cursor:pointer;" />
                 <span style="margin-left:3px;">MUTE</span>
             </div>
-            
+            @if (isSyncing)
+            {
+                <span style="font-size: 10px; color: gold; margin-right: 5px; animation: blink 0.5s infinite;">CLOUD SYNCED</span>
+            }
             <button class="btn-hud" @onclick="OpenSave">SAVE</button>
-            <button class="btn-hud" @onclick="OpenLoad">LOAD</button>
+            <button class="btn-hud" @onclick="OpenLoad">@(State.IsMultiplayerEnabled ? "DATA" : "LOAD")</button>
         </div>
     </div>
 
@@ -113,6 +181,27 @@
     <div class="hud-panel radar-panel">
         <canvas id="radarCanvas" width="200" height="200"></canvas>
     </div>
+
+    <!-- Bottom Left: Sector Chat -->
+    @if (State.IsMultiplayerEnabled)
+    {
+        <div class="hud-panel chat-panel" @onmousedown:stopPropagation @onclick:stopPropagation>
+            <div class="chat-header">SECTOR NET: @Galaxy.CurrentSystem.Name.ToUpper()</div>
+            <div class="chat-log">
+                @foreach (var msg in State.RecentMessages.Where(m => m.SystemId == Galaxy.CurrentSystem.Id).TakeLast(10))
+                {
+                    <div class="chat-msg">
+                        <span class="chat-time">[@DateTimeOffset.FromUnixTimeSeconds(msg.Timestamp).LocalDateTime.ToString("HH:mm")]</span>
+                        <span class="chat-sender">@msg.Sender:</span>
+                        <span class="chat-text">@msg.Text</span>
+                    </div>
+                }
+            </div>
+            <div class="chat-input-wrapper">
+                 <input type="text" @bind="chatInput" @onkeydown="OnKeyPress" placeholder="Broadcast message..." class="chat-input" />
+            </div>
+        </div>
+    }
 </div>
 
 <SaveLoadModal @ref="saveModal" OnLoadComplete="OnLoadComplete" />
@@ -217,7 +306,21 @@
     }
     
     .system-name {
-        font-size: 1.2rem;
+        font-size: 1.0rem;
+        margin-bottom: 5px;
+        color: #008800;
+    }
+
+    .pilot-id {
+        font-size: 0.8rem;
+        color: cyan;
+        letter-spacing: 1px;
+    }
+
+    .multi-tag {
+        font-size: 0.7rem;
+        color: gold;
+        font-weight: bold;
         margin-bottom: 5px;
     }
 
@@ -246,6 +349,112 @@
         color: #006600;
         font-style: italic;
         text-align: center;
+    }
+    
+    /* Controls Panel Styles */
+    .left-column {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .controls-panel {
+        font-size: 0.8em;
+    }
+    
+    .panel-header {
+        color: cyan;
+        border-bottom: 1px solid #004400;
+        margin-bottom: 5px;
+        text-align: center;
+        padding-bottom: 3px;
+        font-weight: bold;
+    }
+    
+    .key-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 4px;
+        color: #00dd00;
+    }
+    
+    .k {
+        color: white;
+        background: rgba(0, 50, 0, 0.8);
+        border: 1px solid #008800;
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-family: 'Share Tech Mono', monospace;
+        font-size: 0.9em;
+        min-width: 20px;
+        text-align: center;
+    }
+
+    /* Sector Chat Styles */
+    .chat-panel {
+        position: absolute;
+        bottom: 20px;
+        left: 20px;
+        width: 320px;
+        height: 250px;
+        display: flex;
+        flex-direction: column;
+        border: 1px solid #004400;
+        background: rgba(0, 10, 0, 0.8);
+    }
+
+    .chat-header {
+        font-size: 0.8rem;
+        color: cyan;
+        border-bottom: 1px solid #004400;
+        padding-bottom: 5px;
+        margin-bottom: 5px;
+        font-weight: bold;
+    }
+
+    .chat-log {
+        flex-grow: 1;
+        overflow-y: auto;
+        font-size: 0.85rem;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        padding-right: 5px;
+    }
+
+    .chat-msg {
+        line-height: 1.2;
+    }
+
+    .chat-time { color: #666; font-size: 0.7rem; margin-right: 4px; }
+    .chat-sender { color: cyan; font-weight: bold; margin-right: 4px; }
+    .chat-text { color: #00ff00; }
+
+    .chat-input-wrapper {
+        margin-top: 5px;
+        border-top: 1px solid #004400;
+        padding-top: 5px;
+    }
+
+    .chat-input {
+        width: 100%;
+        background: rgba(0, 20, 0, 0.9);
+        border: 1px solid #008800;
+        color: #00ff00;
+        font-family: 'Share Tech Mono', monospace;
+        padding: 4px 8px;
+        font-size: 0.9rem;
+        outline: none;
+    }
+
+    .chat-input::placeholder {
+        color: #004400;
+    }
+
+    .chat-input:focus {
+        border-color: cyan;
+        box-shadow: 0 0 5px cyan;
     }
 </style>
 

@@ -8,8 +8,11 @@ namespace SpaceBlazor.Services
         public List<StarSystem> Systems { get; private set; } = new();
         public StarSystem CurrentSystem { get; private set; }
 
-        public GalaxyService()
+        private FirebaseService _firebase;
+
+        public GalaxyService(FirebaseService firebase)
         {
+            _firebase = firebase;
             GenerateGalaxy();
         }
 
@@ -176,6 +179,32 @@ namespace SpaceBlazor.Services
             }
         }
 
+        // [NEW] Sync Market with Firebase
+        public async Task SyncSystemMarketAsync()
+        {
+            if (CurrentSystem == null) return;
+
+            // We only sync the main station for now (simplify)
+            var station = CurrentSystem.Stations.FirstOrDefault(s => s.Type != "Shipyard");
+            if (station == null) return;
+
+            string path = $"sectors/{CurrentSystem.Id}/market";
+            
+            // 1. Try to get existing market
+            var cloudMarket = await _firebase.GetNodeAsync<Dictionary<string, int>>(path);
+            
+            if (cloudMarket == null || cloudMarket.Count == 0)
+            {
+                // 2. Not in Firebase yet? Push our seed.
+                await _firebase.UpdateNodeAsync(path, station.MarketQuantities);
+            }
+            else
+            {
+                // 3. Exists? Merged it into our local state.
+                station.MarketQuantities = cloudMarket;
+            }
+        }
+
         private void GenerateMarket(SpaceStation station, Random rng)
         {
             foreach (var com in Commodities)
@@ -199,6 +228,9 @@ namespace SpaceBlazor.Services
                 }
 
                 station.MarketData[com.Name] = price;
+                
+                // [NEW] Seed Quantities (10 - 100 units)
+                station.MarketQuantities[com.Name] = rng.Next(10, 101);
             }
         }
 

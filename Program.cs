@@ -9,8 +9,9 @@ builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
 builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
-builder.Services.AddSingleton<GameState>();
-builder.Services.AddSingleton<GalaxyService>();
+builder.Services.AddScoped<GameState>();
+builder.Services.AddScoped<GalaxyService>();
 builder.Services.AddScoped<PersistenceService>();
+builder.Services.AddScoped<FirebaseService>();
 
 await builder.Build().RunAsync();

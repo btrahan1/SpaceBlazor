@@ -52,6 +52,9 @@ namespace SpaceBlazor.Models
         
         // Commodity Name -> Price
         public Dictionary<string, int> MarketData { get; set; } = new();
+
+        // [NEW] Commodity Name -> Quantity
+        public Dictionary<string, int> MarketQuantities { get; set; } = new();
     }
 
     public class Commodity

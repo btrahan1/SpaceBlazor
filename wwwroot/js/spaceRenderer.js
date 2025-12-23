@@ -176,9 +176,54 @@ window.spaceRenderer = {
         }
     },
 
-    init: function (canvasId) {
+    remotePlayers: {}, // [NEW] Track other pilots
+
+    // DOTNET REFERENCE
+    dotNetRef: null,
+    setDotNetRef: function (ref) {
+        this.dotNetRef = ref;
+    },
+
+    // [NEW] Update Other Players from C#
+    updateRemotePlayers: function (playerList) {
+        if (!this.scene) return;
+
+        // 1. Process Updates
+        playerList.forEach(p => {
+            let ship = this.remotePlayers[p.sessionId];
+            if (!ship) {
+                // Spawn new ghost
+                ship = BABYLON.MeshBuilder.CreateBox("remote_" + p.sessionId, { size: 2 }, this.scene);
+                ship.material = new BABYLON.StandardMaterial("remoteMat", this.scene);
+                ship.material.emissiveColor = new BABYLON.Color3(0, 1, 1);
+                ship.material.alpha = 0.6; // Ghostly
+
+                this.remotePlayers[p.sessionId] = ship;
+                console.log("Multiplayer: Joined " + p.name);
+            }
+
+            // Set Target for LERPing
+            ship.targetPos = new BABYLON.Vector3(p.x, p.y, p.z);
+            ship.targetRot = new BABYLON.Vector3(p.rx, p.ry, p.rz);
+            ship.lastUpdate = Date.now();
+        });
+
+        // 2. Cleanup Inactive (Not in this fetch)
+        const sessionIds = playerList.map(p => p.sessionId);
+        for (let id in this.remotePlayers) {
+            if (!sessionIds.includes(id)) {
+                this.remotePlayers[id].dispose();
+                delete this.remotePlayers[id];
+            }
+        }
+    },
+
+    init: function (canvasId, dotNetRef, system) {
         this.canvas = document.getElementById(canvasId);
         this.engine = new BABYLON.Engine(this.canvas, true);
+
+        // [NEW] Set Reference immediately
+        this.dotNetRef = dotNetRef;
 
         // Reset State (Fix for SPA Persistence)
         this.autopilotTarget = null;
@@ -187,12 +232,17 @@ window.spaceRenderer = {
         this.isWarping = false;
         this.dockTargetId = null;
         this.canDock = false;
+        this.systemMeshes = []; // [FIX] Initialize immediately
+        this.lasers = [];       // [FIX] Initialize immediately
 
         // Create Scene
         this.scene = new BABYLON.Scene(this.engine);
         this.scene.clearColor = new BABYLON.Color4(0, 0, 0, 1); // Deep Space Black
 
-        // ... (rest of init is same, just logging at start)
+        // Load Initial System if provided
+        if (system) {
+            this.loadSystem(system);
+        }
 
 
         // Light (Sun)
@@ -298,14 +348,24 @@ window.spaceRenderer = {
                 }
             }
 
-            // Shift+L: Auto-Land (Cheat/Fast Travel)
+            // Shift+L: Auto-Land (Autopilot Flight)
             if (key === "l" && evt.sourceEvent.shiftKey && evt.sourceEvent.type == "keydown") {
                 this.forceLandNearest();
             }
 
+            // ESC: Cancel Autopilot/Cruise/Auto-Land
+            if (key === "escape" && evt.sourceEvent.type == "keydown") {
+                this.isCruising = false;
+                this.autopilotTarget = null;
+                this.isAutoLanding = false; // [NEW] Clear auto-landing state
+                console.log("Autopilot/Cruise/Auto-Land Aborted.");
+                if (this.dotNetRef) {
+                    this.dotNetRef.invokeMethodAsync("CancelAutoNav");
+                }
+            }
+
             // Fire Laser on Space (Single Press)
             if (key === " " && evt.sourceEvent.type == "keydown") {
-                console.log("Input: SPACE KEY DETECTED");
                 this.shootLaser();
             }
         }));
@@ -388,9 +448,35 @@ window.spaceRenderer = {
         }
     },
 
+    // [NEW] Central entry point for "Click to Launch"
+    engageFlightMode: function () {
+        if (!this.canvas) return;
+
+        // 1. Audio Init (User Gesture)
+        this.sfx.init();
+
+        // 2. Pointer Lock
+        this.canvas.requestPointerLock = this.canvas.requestPointerLock || this.canvas.mozRequestPointerLock;
+        this.canvas.requestPointerLock();
+
+        console.log("Flight Mode: ENGAGED (Launch)");
+    },
+
     // Restore Pointer Lock
     setupPointerLock: function () {
-        // [NEW] Tab to Toggle Flight Mode (No more Click stealing)
+        // [NEW] Click Canvas to Engage Flight Mode (First Interaction)
+        this.canvas.addEventListener("click", () => {
+            if (document.pointerLockElement !== this.canvas) {
+                // Audio Init (Requires Gesture)
+                this.sfx.init();
+
+                this.canvas.requestPointerLock = this.canvas.requestPointerLock || this.canvas.mozRequestPointerLock;
+                this.canvas.requestPointerLock();
+                console.log("Flight Mode: ENGAGED (Click)");
+            }
+        });
+
+        // [NEW] Tab to Toggle Flight Mode
         window.addEventListener("keydown", (evt) => {
             if (evt.code === "Tab") {
                 evt.preventDefault(); // Stop focus change
@@ -405,7 +491,7 @@ window.spaceRenderer = {
 
                     canvas.requestPointerLock = canvas.requestPointerLock || canvas.mozRequestPointerLock;
                     canvas.requestPointerLock();
-                    console.log("Flight Mode: ENGAGED");
+                    console.log("Flight Mode: ENGAGED (Tab)");
                 }
             }
         });
@@ -508,7 +594,6 @@ window.spaceRenderer = {
     },
 
     loadSystem: function (data) {
-        console.log("Loading System:", data);
         this.clearSystem();
 
         // [NEW] Reset Combat (Spawn Enemies)
@@ -677,7 +762,6 @@ window.spaceRenderer = {
                         if (!this.isJumping) {
                             this.isJumping = true;
                             this.isWarping = true; // Trigger Warp Visuals
-                            console.log("Engaging Warp Drive...");
 
                             // 1. Warp Sound? (TODO)
 
@@ -821,23 +905,15 @@ window.spaceRenderer = {
         });
 
         if (nearestPlanet) {
-            console.log("Auto-Landing at " + nearestPlanet.name);
+            console.log("Autopilot Engaged: Course set for " + nearestPlanet.name);
 
-            // 1. Set Target
+            // Engage Autopilot
+            this.autopilotTarget = nearestPlanet;
+            this.isAutoLanding = true; // [NEW] Flag to land on arrival
+            this.isCruising = true;    // Engage Throttle
+
+            // Set landing target immediately
             this.landingTarget = nearestPlanet;
-
-            // 2. Teleport Ship to Approach Vector (600 units out from planet center)
-            // Vector from Planet to Ship (or default Z if too close/inside)
-            var dir = this.ship.position.subtract(nearestPlanet.position).normalize();
-            if (dir.length() < 0.1) dir = new BABYLON.Vector3(0, 0, 1);
-
-            var approachPos = nearestPlanet.position.add(dir.scale(600));
-            this.ship.position.copyFrom(approachPos);
-            // Look at planet
-            this.ship.lookAt(nearestPlanet.position);
-
-            // 3. Start Sequence
-            this.startLandingSequence();
         }
     },
 
@@ -1053,6 +1129,15 @@ window.spaceRenderer = {
         try {
             if (this.isLanded) return; // [NEW] PAUSE SIMULATION when Landed
 
+            // Update Remote Positions (Smooth LERP)
+            for (let id in this.remotePlayers) {
+                let ship = this.remotePlayers[id];
+                if (ship.targetPos) {
+                    ship.position = BABYLON.Vector3.Lerp(ship.position, ship.targetPos, 0.1);
+                    ship.rotation = BABYLON.Vector3.Lerp(ship.rotation, ship.targetRot, 0.1);
+                }
+            }
+
             this.updateShip();
             // Don't update enemies/lasers if landed? 
             if (!this.isLanding) { // Also pause combat during landing cinematic? Maybe kept for drama?
@@ -1245,9 +1330,14 @@ window.spaceRenderer = {
 
             enemy.position = new BABYLON.Vector3(x, y, z);
             enemy.material = mat;
-            enemy.material = mat;
             enemy.hp = 3; // Health
             enemy.type = "drone"; // [NEW] AI Type
+
+            // [NEW] Larger Hitbox for Drones (Twice the visual size)
+            var hitbox = BABYLON.MeshBuilder.CreateSphere("hb", { diameter: 12 }, this.scene);
+            hitbox.parent = enemy;
+            hitbox.isVisible = false; // Keep it invisible
+            enemy.hitbox = hitbox;
 
             this.enemies.push(enemy);
         }
@@ -1364,12 +1454,10 @@ window.spaceRenderer = {
     },
 
     shootLaser: function () {
-        console.log("shootLaser: Invoked");
-        if (!this.ship) { console.log("shootLaser: No Ship"); return; }
+        if (!this.ship) return;
 
         var now = Date.now();
         var diff = now - (this.lastShotTime || 0); // Handle undefined safely
-        console.log("shootLaser: Cooldown Check. Diff:", diff);
 
         if (diff < 250) return; // 250ms Cooldown
         this.lastShotTime = now;
@@ -1421,8 +1509,6 @@ window.spaceRenderer = {
             // SFX
             this.sfx.laser(false); // Player Laser
 
-            console.log("Laser Spawned!", { pos: laser.position.toString(), dir: laser.direction.toString() });
-
             // Despawn Timer
             laser.life = 120; // [FIX] Range Doubled (2 seconds @ 60fps)
 
@@ -1471,13 +1557,13 @@ window.spaceRenderer = {
                             if (m.material && m.material.emissiveColor) {
                                 var old = m.material.emissiveColor.clone();
                                 m.material.emissiveColor = new BABYLON.Color3(1, 1, 1);
-                                setTimeout(() => { if (!m.isDisposed()) m.material.emissiveColor = old; }, 100);
+                                setTimeout(() => { if (!m.isDisposed() && m.material) m.material.emissiveColor = old; }, 100);
                             }
                         });
                     } else {
                         // Simple Drone
                         enemy.material.emissiveColor = new BABYLON.Color3(1, 1, 1);
-                        setTimeout(() => { if (!enemy.isDisposed()) enemy.material.emissiveColor = new BABYLON.Color3(0.5, 0, 0); }, 100);
+                        setTimeout(() => { if (!enemy.isDisposed() && enemy.material) enemy.material.emissiveColor = new BABYLON.Color3(0.5, 0, 0); }, 100);
                     }
 
                     // Dead?
@@ -1519,8 +1605,6 @@ window.spaceRenderer = {
         // Spawn New
         this.createEnemies();
         this.createRaiders();
-
-        console.log("Combat Reset: Enemies Spawned.");
     },
 
     updateEnemies: function () {
@@ -1801,6 +1885,14 @@ window.spaceRenderer = {
 
         var dt = this.engine.getDeltaTime() / 1000;
 
+        // [NEW] Heartbeat (Every 30 frames ~ 0.5s)
+        if (this.frame % 30 === 0 && this.dotNetRef) {
+            this.dotNetRef.invokeMethodAsync('SyncPosition',
+                this.ship.position.x, this.ship.position.y, this.ship.position.z,
+                this.ship.rotation.x, this.ship.rotation.y, this.ship.rotation.z
+            );
+        }
+
         // Debug Log (Periodic)
         if (this.frame % 120 === 0) {
             console.log(`Ship Status: DT=${dt.toFixed(4)} Cruising=${this.isCruising} Pos=${this.ship.position.toString()}`);
@@ -1824,6 +1916,17 @@ window.spaceRenderer = {
 
             // Check distance
             var dist = BABYLON.Vector3.Distance(this.ship.position, targetPos);
+
+            // [NEW] Auto-Landing Arrival logic
+            if (this.isAutoLanding && dist < 600) {
+                console.log("Auto-Land: Ship in range of " + this.autopilotTarget.name + ". Initiating landing sequence.");
+                this.isCruising = false;
+                this.autopilotTarget = null;
+                this.isAutoLanding = false;
+                this.startLandingSequence();
+                return;
+            }
+
             if (dist < 20) {
                 this.isCruising = false;
                 this.autopilotTarget = null;

@@ -7,7 +7,29 @@ namespace SpaceBlazor.Services
         // Connectivity
         public event Action OnChange;
 
+        // Multiplayer State
+        private bool _isMultiplayerEnabled = false;
+        public bool IsMultiplayerEnabled 
+        { 
+            get => _isMultiplayerEnabled; 
+            set { _isMultiplayerEnabled = value; NotifyStateChanged(); } 
+        }
+
+        private string _universeId = "offline";
+        public string UniverseId 
+        { 
+            get => _universeId; 
+            set { _universeId = value; NotifyStateChanged(); } 
+        }
+        
         // Player Stats
+        private string _callsign = "Pilot_" + new Random().Next(100, 999);
+        public string Callsign 
+        { 
+            get => _callsign; 
+            set { _callsign = value; NotifyStateChanged(); } 
+        }
+        public string SessionId { get; set; } = Guid.NewGuid().ToString().Substring(0, 8);
         public int Credits { get; private set; } = 50000;
         public int Hull { get; private set; } = 100;
         // Ship Data
@@ -137,8 +159,52 @@ namespace SpaceBlazor.Services
             NotifyStateChanged();
         }
 
+        // [NEW] Sector Chat
+        public List<ChatMessage> RecentMessages { get; set; } = new();
+
+        public void AddMessage(ChatMessage msg)
+        {
+            if (!RecentMessages.Any(m => m.Timestamp == msg.Timestamp && m.Sender == msg.Sender))
+            {
+                RecentMessages.Add(msg);
+                if (RecentMessages.Count > 50) RecentMessages.RemoveAt(0);
+                NotifyStateChanged();
+            }
+        }
+
+        public void LoadFromSaveData(SaveData data)
+        {
+            Credits = data.Credits;
+            Fuel = data.Fuel;
+            Hull = data.Hull;
+            Cargo = new Dictionary<string, int>(data.Cargo);
+            
+            if (!string.IsNullOrEmpty(data.ShipClassId))
+            {
+                var ship = Models.ShipClass.Catalog.FirstOrDefault(s => s.Id == data.ShipClassId);
+                if (ship != null)
+                {
+                    // Use BuyShip to re-calc max values but restore current values from save
+                    BuyShip(ship);
+                    Credits = data.Credits;
+                    Fuel = data.Fuel;
+                    Hull = data.Hull;
+                }
+            }
+            
+            NotifyStateChanged();
+        }
+
         public void HasChanged() => NotifyStateChanged();
 
         private void NotifyStateChanged() => OnChange?.Invoke();
+    }
+
+    public class ChatMessage
+    {
+        public string Sender { get; set; }
+        public string Text { get; set; }
+        public long Timestamp { get; set; }
+        public string SystemId { get; set; }
     }
 }

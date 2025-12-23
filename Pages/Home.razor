@@ -1,13 +1,105 @@
 ﻿@page "/"
 @inject SpaceBlazor.Services.GalaxyService Galaxy
 @inject SpaceBlazor.Services.GameState State
+@inject SpaceBlazor.Services.FirebaseService Firebase
+@inject SpaceBlazor.Services.PersistenceService Persist
 @inject IJSRuntime JSRuntime
 @using SpaceBlazor.Shared
+@using SpaceBlazor.Services
 
 <PageTitle>SpaceBlazor - The Astral Frontier</PageTitle>
 
 <div style="position: relative; width: 100vw; height: 100vh; overflow: hidden;">
-    
+    <!-- Splash Screen -->
+    @if (showSplash)
+    {
+        <div class="splash-overlay">
+            <div class="splash-content">
+                <h1 class="splash-title">ASTRAL FRONTIER</h1>
+                <p class="splash-subtitle">SYSTEM INITIALIZED. READY FOR DEPLOYMENT.</p>
+                
+                @if (!showFederationHub)
+                {
+                    <div class="splash-menu">
+                        <button class="launch-btn" @onclick="StartSinglePlayer">SOLO DEPLOYMENT</button>
+                        <button class="launch-btn alt-btn" @onclick="OpenFederationHub">FEDERATION NET</button>
+                    </div>
+                }
+                else
+                {
+                    <div class="federation-hub">
+                        <h2 class="hub-title">FEDERATION NET: SECTOR BROWSER</h2>
+                        
+                        <div class="universe-list">
+                            @if (isLoadingUniverses)
+                            {
+                                <div class="loading-spinner">SCANNING FREQUENCIES...</div>
+                            }
+                            else if (universeList == null || !universeList.Any())
+                            {
+                                <div class="empty-list">NO ACTIVE UNIVERSES FOUND.</div>
+                            }
+                            else
+                            {
+                                @foreach (var uni in universeList)
+                                {
+                                    <div class="universe-card" @onclick="() => JoinUniverse(uni.Key)">
+                                        <div class="uni-name">@uni.Value.Name</div>
+                                        <div class="uni-meta">CREATED BY @uni.Value.Creator.ToUpper()</div>
+                                    </div>
+                                }
+                            }
+                        </div>
+
+                        <div class="hub-actions">
+                            <input type="text" @bind="newUniverseName" placeholder="NEW UNIVERSE NAME..." class="hub-input" />
+                            <button class="hub-btn" @onclick="CreateUniverse">INITIALIZE REALITY</button>
+                        </div>
+
+                        <button class="back-btn" @onclick="() => showFederationHub = false">BACK TO DEPLOYMENT</button>
+                    </div>
+                }
+
+                @if (showDebugPanel)
+                {
+                    <div class="persistence-debug">
+                        <div class="debug-header">FEDERATION DIAGNOSTICS</div>
+                        <div class="debug-row"><span>PILOT ID:</span> <span style="color:white">@State.Callsign</span></div>
+                        <div class="debug-row"><span>UNIVERSE:</span> <span style="color:white">@State.UniverseId</span></div>
+                        <div class="debug-row">
+                            <span>MULTI:</span> 
+                            <span style="color:@(string.IsNullOrEmpty(syncError) ? "lime" : "red")">
+                                @(string.IsNullOrEmpty(syncError) ? "ACTIVE" : "ERROR")
+                            </span>
+                        </div>
+                        @if (!string.IsNullOrEmpty(syncError))
+                        {
+                            <div style="color:red; font-size:10px; margin: 5px 0;">[!] AUTHENTICATION FAILURE (401)</div>
+                        }
+                        <div class="debug-row"><span>CREDITS:</span> <span style="color:gold">@State.Credits CR</span></div>
+                        <div style="margin-top: 10px; display:flex; gap: 5px; flex-wrap: wrap; justify-content: center;">
+                            <button class="debug-btn" @onclick="() => { State.ModifyCredits(10000); }">STIMULUS (+10k)</button>
+                            <button class="debug-btn" @onclick="TriggerCloudSave">FORCE SYNC</button>
+                            <button class="debug-btn" @onclick="() => showDebugPanel = false">CLOSE</button>
+                            <button class="debug-btn" style="border-color: red; color: red;" @onclick="WipeIdentity">WIPE LOCAL ID</button>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div style="margin-top:20px; color:rgba(255,255,255,0.3); font-size:10px; cursor:pointer;" @onclick="() => showDebugPanel = true">
+                        [ SYSTEM DIAGNOSTICS ]
+                    </div>
+                }
+
+                <div class="splash-hints">
+                    <span>WASD: PILOT</span> | <span>SPACE: CANNONS</span> | <span>TAB: INTERFACE</span>
+                </div>
+            </div>
+        </div>
+    }
+
+    <CascadingValue Value="this">
     @if (isInPlanet)
     {
         <PlanetSurface PlanetName="@landingPlanetName" OnLaunch="LaunchFromPlanet" />
@@ -32,11 +124,7 @@
                 PRESS <span class="key">D</span> TO DOCK
             </div>
         }
-        
-        <!-- Control Hint -->
-        <div class="control-hint">
-            PRESS <span class="key">TAB</span> TO TOGGLE FLIGHT
-        </div>
+
 
 
         <!-- Docking Menu -->
@@ -54,12 +142,12 @@
                     <div class="services-panel">
                         <h3>Services</h3>
                         <div class="service-row">
-                            <span>Refuel (1cr)</span>
-                            <button class="btn btn-warning btn-sm" @onclick="RefuelShip" disabled="@(State.Fuel >= State.MaxFuel || State.Credits < 10)">Fill Up</button>
+                            <span>Refuel Ship</span>
+                            <button class="btn btn-primary btn-sm" @onclick="RefuelShip">REFUEL (1 CR)</button>
                         </div>
                          <div class="service-row">
-                            <span>Repair Hull (10cr)</span>
-                            <button class="btn btn-success btn-sm" @onclick="RepairShip" disabled="@(State.Hull >= State.MaxHull || State.Credits < 50)">Repair All</button>
+                            <span>Repair Hull</span>
+                            <button class="btn btn-primary btn-sm" @onclick="RepairShip">REPAIR (10 CR)</button>
                         </div>
                     </div>
 
@@ -74,16 +162,20 @@
                                         <th>Item</th>
                                         <th>Price</th>
                                         <th>Cargo</th>
+                                        <th>STK</th>
                                         <th>Action</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     @foreach (var item in currentStation.MarketData)
                                     {
+                                        var qty = currentStation.MarketQuantities.ContainsKey(item.Key) ? currentStation.MarketQuantities[item.Key] : 0;
+                                        var playerQty = State.Cargo.ContainsKey(item.Key) ? State.Cargo[item.Key] : 0;
                                         <tr>
                                             <td>@item.Key</td>
                                             <td class="text-warning">@item.Value CR</td>
-                                            <td>@(State.Cargo.ContainsKey(item.Key) ? State.Cargo[item.Key] : 0)</td>
+                                            <td>@playerQty</td>
+                                            <td class="text-info">@qty</td>
                                             <td>
                                                 <div class="market-actions">
                                                     <button class="btn-action buy" @onclick="() => Buy(item.Key, item.Value)">BUY</button>
@@ -99,9 +191,7 @@
                             </table>
                         </div>
                     }
-
-                    <!-- Shipyard (Shipyard Only) -->
-                    @if (currentStation.Type == "Shipyard")
+                    else if (currentStation.Type == "Shipyard")
                     {
                         <div class="market-panel" style="width: 500px;">
                             <h3>Shipyard Dealership</h3>
@@ -271,6 +361,7 @@
     }
 
     <canvas id="renderCanvas" style="width: 100%; height: 100%; touch-action: none; outline: none;" tabindex="1"></canvas>
+    </CascadingValue>
 </div>
 
 <style>
@@ -478,15 +569,25 @@
         if (firstRender)
         {
             objRef = DotNetObjectReference.Create(this);
-            await Task.Delay(100); 
             
-            await JSRuntime.InvokeVoidAsync("spaceRenderer.init", "renderCanvas");
-            await JSRuntime.InvokeVoidAsync("spaceRenderer.setDotNetRef", objRef);
+            // 1. Sticky Identity
+            var savedCallsign = await Persist.GetCallsignAsync();
+            if (string.IsNullOrEmpty(savedCallsign))
+            {
+                await Persist.SetCallsignAsync(State.Callsign);
+            }
+            else
+            {
+                State.Callsign = savedCallsign;
+            }
 
+            await JSRuntime.InvokeVoidAsync("spaceRenderer.init", "renderCanvas", objRef, Galaxy.CurrentSystem);
+            _ = StartGhostSync();
+            
             // Load Initial System
-            await JSRuntime.InvokeVoidAsync("spaceRenderer.loadSystem", Galaxy.CurrentSystem);
-            await JSRuntime.InvokeVoidAsync("spaceRenderer.resetShip"); // [FIX] Ensure safe spawn
-            await JSRuntime.InvokeVoidAsync("spaceRenderer.changeShip", State.CurrentShip.Name, State.CurrentShip.Hardpoints); // [NEW] Set Correct Ship Visuals & Stats
+            await Galaxy.SyncSystemMarketAsync(); // [NEW] Sync Market
+            await JSRuntime.InvokeVoidAsync("spaceRenderer.resetShip");
+            await JSRuntime.InvokeVoidAsync("spaceRenderer.changeShip", State.CurrentShip.Name, State.CurrentShip.Hardpoints);
             
             // KEY LISTENERS (D for Dock, M for Map, Shift+T for Lazy Trade)
             await JSRuntime.InvokeVoidAsync("eval", @"
@@ -768,58 +869,112 @@
     }
 
     [JSInvokable]
+    public async Task SyncPosition(float x, float y, float z, float rx, float ry, float rz)
+    {
+        // Throttled by JS calling it every 500ms
+        var posData = new {
+            x = (int)x, y = (int)y, z = (int)z,
+            rx = rx, ry = ry, rz = rz,
+            system = Galaxy.CurrentSystem.Id,
+            name = State.Callsign,
+            ship = State.CurrentShipClassId,
+            hull = State.Hull,
+            lastSeen = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+        };
+
+        // Note: Using Firebase from DI (Program.cs)
+        await Firebase.UpdateNodeAsync($"players/{State.SessionId}", posData);
+    }
+
+    [JSInvokable]
     public async Task AddBounty(int amount)
     {
         State.ModifyCredits(amount);
-        // Show Toast? For now just refresh state
+        if (State.IsMultiplayerEnabled)
+        {
+            await TriggerCloudSave();
+        }
         StateHasChanged();
-        
-        // Optional: Simple console log or JS Alert via runtime
-        // await JSRuntime.InvokeVoidAsync("console.log", $"Bounty Received: {amount} CR");
     }
 
-    private void Buy(string item, int price)
+    private async Task Buy(string item, int price)
     {
-        if (State.Credits >= price && State.GetCargoCount() < State.CargoCapacity)
+        if (currentStation == null) return;
+        int qty = currentStation.MarketQuantities.ContainsKey(item) ? currentStation.MarketQuantities[item] : 0;
+
+        if (State.Credits >= price && State.GetCargoCount() < State.CargoCapacity && qty > 0)
         {
              State.ModifyCredits(-price);
              State.AddCargo(item, 1);
+             
+             // Update Local
+             currentStation.MarketQuantities[item]--;
+             
+             // Sync Firebase
+             await Firebase.UpdateNodeAsync($"sectors/{Galaxy.CurrentSystem.Id}/market", currentStation.MarketQuantities);
         }
     }
 
-    private void BuyMax(string item, int price)
+    private async Task BuyMax(string item, int price)
     {
-        // Calculate max we can afford
+        if (currentStation == null) return;
+        int qty = currentStation.MarketQuantities.ContainsKey(item) ? currentStation.MarketQuantities[item] : 0;
+
+        // Calculate factors
         int maxAfford = State.Credits / price;
-        // Calculate max space left
         int maxSpace = State.CargoCapacity - State.GetCargoCount();
+        int maxStock = qty;
         
-        // Take the smaller limit
-        int amount = Math.Min(maxAfford, maxSpace);
+        // Take the absolute limit
+        int amount = Math.Min(maxAfford, Math.Min(maxSpace, maxStock));
         
         if (amount > 0)
         {
             State.ModifyCredits(-(amount * price));
             State.AddCargo(item, amount);
+
+            // Update Local
+            currentStation.MarketQuantities[item] -= amount;
+             
+            // Sync Firebase
+            await Firebase.UpdateNodeAsync($"sectors/{Galaxy.CurrentSystem.Id}/market", currentStation.MarketQuantities);
         }
     }
 
-    private void Sell(string item, int price)
+    private async Task Sell(string item, int price)
     {
+        if (currentStation == null) return;
+
         if (State.Cargo.ContainsKey(item) && State.Cargo[item] > 0)
         {
              State.ModifyCredits(price);
              State.RemoveCargo(item, 1);
+
+             // Update Local
+             if (!currentStation.MarketQuantities.ContainsKey(item)) currentStation.MarketQuantities[item] = 0;
+             currentStation.MarketQuantities[item]++;
+             
+             // Sync Firebase
+             await Firebase.UpdateNodeAsync($"sectors/{Galaxy.CurrentSystem.Id}/market", currentStation.MarketQuantities);
         }
     }
 
-    private void SellMax(string item, int price)
+    private async Task SellMax(string item, int price)
     {
+        if (currentStation == null) return;
+
         if (State.Cargo.ContainsKey(item) && State.Cargo[item] > 0)
         {
             int amount = State.Cargo[item];
             State.ModifyCredits(amount * price);
             State.RemoveCargo(item, amount);
+
+             // Update Local
+             if (!currentStation.MarketQuantities.ContainsKey(item)) currentStation.MarketQuantities[item] = 0;
+             currentStation.MarketQuantities[item] += amount;
+             
+             // Sync Firebase
+             await Firebase.UpdateNodeAsync($"sectors/{Galaxy.CurrentSystem.Id}/market", currentStation.MarketQuantities);
         }
     }
 
@@ -859,14 +1014,19 @@
         StateHasChanged(); // [FIX] Update Map/HUD Forcefully
 
         // 2. Reload JS World
+        await Galaxy.SyncSystemMarketAsync(); // [NEW] Sync Next System Market
         await JSRuntime.InvokeVoidAsync("spaceRenderer.loadSystem", Galaxy.CurrentSystem);
         
         await JSRuntime.InvokeVoidAsync("spaceRenderer.resetShip");
         
-        // AutoNav: Continue?
         if (State.IsAutoNavigating)
         {
              await JSRuntime.InvokeVoidAsync("spaceRenderer.engageAutopilotByName", "jumpGate");
+        }
+
+        if (State.IsMultiplayerEnabled)
+        {
+            await TriggerCloudSave();
         }
     }
 
@@ -874,6 +1034,132 @@
     private bool isInPlanet = false;
     private bool canLand = false;
     private string landingPlanetName = "";
+    private bool showSplash = true; // [NEW] Start with splash
+    private bool showFederationHub = false;
+    private bool isLoadingUniverses = false;
+    private string newUniverseName = "";
+    private Dictionary<string, UniverseMeta>? universeList;
+    private bool showDebugPanel = false;
+    private string syncError = "";
+
+    private async Task WipeIdentity()
+    {
+        await Persist.SetCallsignAsync("");
+        await JSRuntime.InvokeVoidAsync("location.reload");
+    }
+
+    private async Task StartSinglePlayer()
+    {
+        State.IsMultiplayerEnabled = false;
+        State.UniverseId = "offline";
+        await StartGame();
+    }
+
+    private async Task OpenFederationHub()
+    {
+        showFederationHub = true;
+        isLoadingUniverses = true;
+        universeList = await Firebase.GetUniversesAsync();
+        isLoadingUniverses = false;
+    }
+
+    private async Task JoinUniverse(string id)
+    {
+        State.IsMultiplayerEnabled = true;
+        State.UniverseId = id;
+        
+        // 1. Attempt Cloud Load
+        var cloudData = await Firebase.GetPlayerStateAsync(State.Callsign);
+        if (cloudData != null)
+        {
+            State.LoadFromSaveData(cloudData);
+            if (!string.IsNullOrEmpty(cloudData.CurrentSystemId))
+            {
+                Galaxy.JumpTo(cloudData.CurrentSystemId);
+            }
+        }
+
+        await StartGame();
+        
+        // 2. Hydrate 3D World from Load
+        await Galaxy.SyncSystemMarketAsync();
+        await JSRuntime.InvokeVoidAsync("spaceRenderer.loadSystem", Galaxy.CurrentSystem);
+        if (cloudData != null)
+        {
+             await JSRuntime.InvokeVoidAsync("spaceRenderer.setShipPosition", cloudData.PositionX, cloudData.PositionY, cloudData.PositionZ);
+        }
+        else
+        {
+             await JSRuntime.InvokeVoidAsync("spaceRenderer.resetShip");
+        }
+        await JSRuntime.InvokeVoidAsync("spaceRenderer.changeShip", State.CurrentShip.Name, State.CurrentShip.Hardpoints);
+
+        // 3. Initial Setup
+        _ = RefreshRemotePlayers(); 
+        _ = RunAutoSaveLoop(); // [NEW] Start saving in background
+        StateHasChanged(); // [NEW] Force UI refresh after load
+    }
+
+    private async Task CreateUniverse()
+    {
+        if (string.IsNullOrWhiteSpace(newUniverseName)) return;
+        
+        string id = Guid.NewGuid().ToString().Substring(0, 6);
+        await Firebase.RegisterUniverseAsync(id, newUniverseName, State.Callsign);
+        
+        State.IsMultiplayerEnabled = true;
+        State.UniverseId = id;
+        await StartGame();
+        
+        _ = RefreshRemotePlayers();
+        _ = RunAutoSaveLoop();
+    }
+
+    private async Task RunAutoSaveLoop()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+        while (await timer.WaitForNextTickAsync())
+        {
+            if (!State.IsMultiplayerEnabled) break;
+            await TriggerCloudSave();
+        }
+    }
+
+    public async Task TriggerCloudSave() // Changed to public
+    {
+        try
+        {
+            var pos = await JSRuntime.InvokeAsync<PositionDto>("spaceRenderer.getShipPosition");
+            var data = new SaveData
+            {
+                Credits = State.Credits,
+                Fuel = State.Fuel,
+                Hull = State.Hull,
+                Cargo = new Dictionary<string, int>(State.Cargo),
+                CurrentSystemId = Galaxy.CurrentSystem.Id,
+                ShipClassId = State.CurrentShipClassId,
+                PositionX = pos.x,
+                PositionY = pos.y,
+                PositionZ = pos.z,
+                Timestamp = DateTime.UtcNow
+            };
+            await Firebase.SavePlayerStateAsync(State.Callsign, data);
+            syncError = "";
+            StateHasChanged();
+        }
+        catch (Exception ex) 
+        { 
+            syncError = ex.Message;
+            StateHasChanged();
+        }
+    }
+
+    private async Task StartGame()
+    {
+        showSplash = false;
+        // Trigger pointer lock and audio init immediately on click
+        await JSRuntime.InvokeVoidAsync("spaceRenderer.engageFlightMode");
+    }
 
     [JSInvokable]
     public void SetLandingAvailable(bool available, string planetName)
@@ -907,6 +1193,66 @@
         if (type == "Mining Array") return "⬇ SELLS: Iron, Gold (Cheap) | ⬆ BUYS: Electronics, Medical";
         if (type == "Trading Post") return "⬇ SELLS: Electronics, Medical | ⬆ BUYS: Iron, Gold, Fuel";
         return "Standard Market";
+    }
+
+    // --- Multiplayer Sync Logic ---
+    private async Task StartGhostSync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+        while (await timer.WaitForNextTickAsync())
+        {
+            if (State.IsMultiplayerEnabled)
+            {
+                await RefreshRemotePlayers();
+            }
+        }
+    }
+
+    private async Task RefreshRemotePlayers()
+    {
+        var allPlayers = await Firebase.GetNodeAsync<Dictionary<string, PlayerData>>("players");
+        if (allPlayers == null) return;
+
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        
+        // Filter: Same System && Active (< 10s) && Not Me
+        var otherPilots = allPlayers
+            .Where(p => p.Key != State.SessionId)
+            .Where(p => p.Value.system == Galaxy.CurrentSystem.Id)
+            .Where(p => (now - p.Value.lastSeen) < 10)
+            .Select(p => new {
+                sessionId = p.Key,
+                name = p.Value.name,
+                x = p.Value.x, y = p.Value.y, z = p.Value.z,
+                rx = p.Value.rx, ry = p.Value.ry, rz = p.Value.rz,
+                ship = p.Value.ship
+            })
+            .ToList();
+
+        await JSRuntime.InvokeVoidAsync("spaceRenderer.updateRemotePlayers", otherPilots);
+
+        // [NEW] Polling Chat
+        var chatData = await Firebase.GetNodeAsync<Dictionary<string, ChatMessage>>($"sectors/{Galaxy.CurrentSystem.Id}/chat");
+        if (chatData != null)
+        {
+            foreach (var m in chatData.Values.OrderBy(x => x.Timestamp))
+            {
+                State.AddMessage(m);
+            }
+        }
+    }
+
+    public class PlayerData {
+        public string? name { get; set; }
+        public string? system { get; set; }
+        public int x { get; set; }
+        public int y { get; set; }
+        public int z { get; set; }
+        public float rx { get; set; }
+        public float ry { get; set; }
+        public float rz { get; set; }
+        public string? ship { get; set; }
+        public long lastSeen { get; set; }
     }
 
     public void Dispose()
@@ -982,5 +1328,268 @@
     @@keyframes blink {
         from { opacity: 0.5; box-shadow: 0 0 10px lime; }
         to { opacity: 1; box-shadow: 0 0 20px lime; }
+    }
+
+    /* Splash Screen Styles */
+    .splash-overlay {
+        position: absolute;
+        top: 0; left: 0; 
+        width: 100%; height: 100%;
+        background: radial-gradient(circle at center, rgba(0,20,40,0.9) 0%, rgba(0,5,10,1) 100%);
+        z-index: 9999;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        backdrop-filter: blur(8px);
+    }
+
+    .splash-content {
+        text-align: center;
+        animation: fadeIn 1s ease-out;
+    }
+
+    .splash-title {
+        font-family: 'Orbitron', sans-serif;
+        font-size: 5rem;
+        color: white;
+        text-shadow: 0 0 20px cyan, 0 0 40px blue;
+        letter-spacing: 12px;
+        margin-bottom: 5px;
+    }
+
+    .splash-subtitle {
+        color: cyan;
+        font-family: 'Share Tech Mono', monospace;
+        letter-spacing: 3px;
+        opacity: 0.8;
+        margin-bottom: 40px;
+    }
+
+    .launch-btn {
+        background: transparent;
+        color: white;
+        border: 2px solid cyan;
+        padding: 15px 60px;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 1.8rem;
+        letter-spacing: 5px;
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        box-shadow: 0 0 15px rgba(0, 255, 255, 0.3);
+        margin-bottom: 30px;
+    }
+
+    .launch-btn:hover {
+        background: cyan;
+        color: black;
+        box-shadow: 0 0 30px cyan;
+        transform: scale(1.05);
+    }
+
+    .alt-btn {
+        background: rgba(0, 0, 0, 0.5) !important;
+        color: #00ffff !important;
+        box-shadow: 0 0 15px rgba(0, 255, 255, 0.2) !important;
+        border-color: rgba(0, 255, 255, 0.3) !important;
+    }
+    .alt-btn:hover {
+        background: rgba(0, 255, 255, 0.1) !important;
+        border-color: #00ffff !important;
+    }
+
+    .splash-menu {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        align-items: center;
+        margin-top: 20px;
+    }
+
+    /* Federation Hub Styles */
+    .federation-hub {
+        margin-top: 20px;
+        width: 100%;
+        max-width: 450px;
+        background: rgba(0, 10, 20, 0.9);
+        border: 2px solid #004444;
+        padding: 30px;
+        border-radius: 10px;
+        box-shadow: 0 0 50px rgba(0, 255, 255, 0.2);
+        animation: hubFadeIn 0.5s ease-out;
+    }
+
+    @@keyframes hubFadeIn {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .hub-title {
+        font-family: 'Orbitron', sans-serif;
+        font-size: 1rem;
+        color: #00ffff;
+        border-bottom: 2px solid #004444;
+        padding-bottom: 15px;
+        margin-bottom: 20px;
+        text-align: center;
+        letter-spacing: 3px;
+    }
+
+    .universe-list {
+        height: 220px;
+        overflow-y: auto;
+        margin-bottom: 20px;
+        border: 1px solid #002222;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .universe-card {
+        padding: 15px;
+        border: 1px solid #004444;
+        background: rgba(0, 20, 20, 0.3);
+        cursor: pointer;
+        transition: all 0.2s;
+        text-align: left;
+    }
+    .universe-card:hover {
+        background: rgba(0, 255, 255, 0.1);
+        border-color: #00ffff;
+        box-shadow: 0 0 10px rgba(0, 255, 255, 0.2);
+    }
+
+    .uni-name { 
+        color: #00ffff; 
+        font-family: 'Orbitron', sans-serif;
+        font-weight: bold; 
+        font-size: 1.1rem; 
+        letter-spacing: 1px;
+    }
+    .uni-meta { 
+        color: #008888; 
+        font-family: 'Share Tech Mono', monospace;
+        font-size: 0.75rem; 
+        margin-top: 5px; 
+    }
+
+    .hub-actions {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 15px;
+    }
+
+    .hub-input {
+        flex-grow: 1;
+        background: #000;
+        border: 1px solid #004444;
+        color: #00ffff;
+        padding: 10px;
+        font-family: 'Share Tech Mono', monospace;
+        font-size: 0.9rem;
+        outline: none;
+    }
+    .hub-input:focus {
+        border-color: #00ffff;
+        box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+    }
+
+    .hub-btn {
+        background: #004444;
+        color: #00ffff;
+        border: 1px solid #008888;
+        padding: 10px 20px;
+        cursor: pointer;
+        font-weight: bold;
+        font-family: 'Orbitron';
+        font-size: 0.8rem;
+        transition: all 0.2s;
+    }
+    .hub-btn:hover { 
+        background: #00ffff; 
+        color: black;
+    }
+
+    .back-btn {
+        width: 100%;
+        background: none;
+        border: 1px solid #222;
+        color: #666;
+        padding: 8px;
+        cursor: pointer;
+        font-family: 'Share Tech Mono', monospace;
+        font-size: 0.8rem;
+        margin-top: 10px;
+        transition: color 0.2s;
+    }
+    .back-btn:hover { color: #aaa; border-color: #444; }
+
+    .loading-spinner { 
+        color: #00ffff; 
+        text-align: center; 
+        margin-top: 90px; 
+        font-family: 'Share Tech Mono', monospace;
+        font-size: 0.9rem;
+        letter-spacing: 2px;
+    }
+    .empty-list { 
+        color: #444; 
+        text-align: center; 
+        margin-top: 90px; 
+        font-family: 'Share Tech Mono', monospace;
+        font-size: 0.9rem; 
+    }
+
+    .splash-hints {
+        color: rgba(255,255,255,0.5);
+        font-family: 'Share Tech Mono', monospace;
+        font-size: 0.9rem;
+    }
+
+    .splash-hints span {
+        color: white;
+    }
+
+    @@keyframes fadeIn {
+        from { opacity: 0; transform: scale(0.9); }
+        to { opacity: 1; transform: scale(1); }
+    }
+
+    .persistence-debug {
+        margin-top: 20px;
+        background: rgba(0, 40, 40, 0.8);
+        border: 1px solid cyan;
+        padding: 15px;
+        font-family: 'Share Tech Mono', monospace;
+        font-size: 0.8rem;
+        color: cyan;
+        text-align: left;
+        display: inline-block;
+        min-width: 250px;
+        border-radius: 5px;
+    }
+    .debug-header {
+        border-bottom: 1px solid cyan;
+        margin-bottom: 10px;
+        padding-bottom: 5px;
+        font-weight: bold;
+        text-align: center;
+    }
+    .debug-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 3px;
+    }
+    .debug-btn {
+        background: transparent;
+        border: 1px solid cyan;
+        color: cyan;
+        padding: 3px 8px;
+        font-size: 0.7rem;
+        cursor: pointer;
+    }
+    .debug-btn:hover {
+        background: rgba(0,255,255,0.2);
     }
 </style>

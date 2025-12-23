@@ -11,6 +11,7 @@ namespace SpaceBlazor.Services
         public int Hull { get; set; }
         public Dictionary<string, int> Cargo { get; set; } = new();
         public string CurrentSystemId { get; set; }
+        public string ShipClassId { get; set; } = "sidewinder";
         // [NEW] Position Support
         public float PositionX { get; set; }
         public float PositionY { get; set; }
@@ -22,10 +23,21 @@ namespace SpaceBlazor.Services
     {
         private readonly IJSRuntime _js;
         private const string MANIFEST_KEY = "SpaceBlazor_SaveManifest";
+        private const string CALLSIGN_KEY = "SpaceBlazor_ActiveCallsign";
 
         public PersistenceService(IJSRuntime js)
         {
             _js = js;
+        }
+
+        public async Task<string?> GetCallsignAsync()
+        {
+            return await _js.InvokeAsync<string>("localStorage.getItem", CALLSIGN_KEY);
+        }
+
+        public async Task SetCallsignAsync(string callsign)
+        {
+            await _js.InvokeVoidAsync("localStorage.setItem", CALLSIGN_KEY, callsign);
         }
 
         public async Task<List<string>> GetSavesAsync()
