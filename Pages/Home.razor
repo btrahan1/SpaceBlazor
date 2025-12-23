@@ -7,121 +7,139 @@
 <PageTitle>SpaceBlazor - The Astral Frontier</PageTitle>
 
 <div style="position: relative; width: 100vw; height: 100vh; overflow: hidden;">
-    <Hud />
     
-    <!-- Docking Alert -->
-    @if (canDock)
+    @if (isInPlanet)
     {
-        <div class="dock-alert">
-            PRESS <span class="key">D</span> TO DOCK
-        </div>
+        <PlanetSurface PlanetName="@landingPlanetName" OnLaunch="LaunchFromPlanet" />
     }
-
-    <!-- Control Hint -->
-    <div class="control-hint">
-        PRESS <span class="key">TAB</span> TO TOGGLE FLIGHT
-    </div>
-
-    <!-- Docking Menu -->
-    @if (isDocked && currentStation != null)
+    else
     {
-        <div class="dock-menu">
-            <div class="dock-header">
-                <h1>@currentStation.Name</h1>
-                <span class="station-type">@currentStation.Type</span>
-                <button class="btn btn-danger btn-sm" @onclick="Undock">UNDOCK</button>
+        <!-- HUD Overlay -->
+        <Hud />
+    
+        <!-- Landing Toast -->
+        @if (canLand)
+        {
+            <div style="position:absolute; top:20%; width:100%; text-align:center; color:orange; font-family:'Orbitron'; font-size:24px; text-shadow:0 0 10px black; animation: blink 1s infinite;">
+                PRESS 'L' TO LAND AT @landingPlanetName
             </div>
+        }
 
-            <div class="dock-content">
-                <!-- Services -->
-                <div class="services-panel">
-                    <h3>Services</h3>
-                    <div class="service-row">
-                        <span>Refuel (1cr)</span>
-                        <button class="btn btn-warning btn-sm" @onclick="RefuelShip" disabled="@(State.Fuel >= State.MaxFuel || State.Credits < 10)">Fill Up</button>
-                    </div>
-                     <div class="service-row">
-                        <span>Repair Hull (10cr)</span>
-                        <button class="btn btn-success btn-sm" @onclick="RepairShip" disabled="@(State.Hull >= State.MaxHull || State.Credits < 50)">Repair All</button>
-                    </div>
+        <!-- Docking Alert -->
+        @if (canDock)
+        {
+            <div class="dock-alert">
+                PRESS <span class="key">D</span> TO DOCK
+            </div>
+        }
+        
+        <!-- Control Hint -->
+        <div class="control-hint">
+            PRESS <span class="key">TAB</span> TO TOGGLE FLIGHT
+        </div>
+
+
+        <!-- Docking Menu -->
+        @if (isDocked && currentStation != null)
+        {
+            <div class="dock-menu">
+                <div class="dock-header">
+                    <h1>@currentStation.Name</h1>
+                    <span class="station-type">@currentStation.Type</span>
+                    <button class="btn btn-danger btn-sm" @onclick="Undock">UNDOCK</button>
                 </div>
 
-                <!-- Market (Standard Stations) -->
-                @if (currentStation.Type != "Shipyard")
-                {
-                    <div class="market-panel">
-                        <h3>Commodity Market</h3>
-                        <table class="table table-dark table-sm">
-                            <thead>
-                                <tr>
-                                    <th>Item</th>
-                                    <th>Price</th>
-                                    <th>Cargo</th>
-                                    <th>Action</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var item in currentStation.MarketData)
-                                {
-                                    <tr>
-                                        <td>@item.Key</td>
-                                        <td class="text-warning">@item.Value CR</td>
-                                        <td>@(State.Cargo.ContainsKey(item.Key) ? State.Cargo[item.Key] : 0)</td>
-                                        <td>
-                                            <div class="market-actions">
-                                                <button class="btn-action buy" @onclick="() => Buy(item.Key, item.Value)">BUY</button>
-                                                <button class="btn-action buy-max" @onclick="() => BuyMax(item.Key, item.Value)">MAX</button>
-                                                
-                                                <button class="btn-action sell" @onclick="() => Sell(item.Key, (int)(item.Value * 0.8))">SELL</button>
-                                                <button class="btn-action sell-max" @onclick="() => SellMax(item.Key, (int)(item.Value * 0.8))">MAX</button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                }
-
-                <!-- Shipyard (Shipyard Only) -->
-                @if (currentStation.Type == "Shipyard")
-                {
-                    <div class="market-panel" style="width: 500px;">
-                        <h3>Shipyard Dealership</h3>
-                        <div class="ship-list">
-                            @foreach (var ship in SpaceBlazor.Models.ShipClass.Catalog)
-                            {
-                                var currentShip = State.CurrentShip; // The static def for Trade-In
-                                int tradeIn = (int)(currentShip.Price * 0.5f);
-                                int netCost = ship.Price - tradeIn;
-                                bool canAfford = State.Credits >= netCost;
-                                bool isOwned = State.CurrentShipClassId == ship.Id;
-
-                                <div class="ship-card @(isOwned ? "owned" : "")">
-                                    <div class="ship-header">
-                                        <span class="ship-name">@ship.Name</span>
-                                        <span class="ship-price">@(isOwned ? "OWNED" : $"{netCost:N0} CR")</span>
-                                    </div>
-                                    <div class="ship-stats">
-                                        <div>HP: @ship.MaxHull</div>
-                                        <div>Cargo: @ship.CargoCapacity</div>
-                                        <div>Speed: @ship.SpeedMultiplier x</div>
-                                        <div>Guns: @ship.Hardpoints</div>
-                                    </div>
-                                    <div class="ship-desc">@ship.Description</div>
-                                    @if (!isOwned)
-                                    {
-                                        <button class="btn btn-primary btn-sm btn-block" disabled="@(!canAfford)" @onclick="() => PurchaseShip(ship)">
-                                            PURCHASE (Trade-In: @tradeIn CR)
-                                        </button>
-                                    }
-                                </div>
-                            }
+                <div class="dock-content">
+                    <!-- Services -->
+                    <div class="services-panel">
+                        <h3>Services</h3>
+                        <div class="service-row">
+                            <span>Refuel (1cr)</span>
+                            <button class="btn btn-warning btn-sm" @onclick="RefuelShip" disabled="@(State.Fuel >= State.MaxFuel || State.Credits < 10)">Fill Up</button>
+                        </div>
+                         <div class="service-row">
+                            <span>Repair Hull (10cr)</span>
+                            <button class="btn btn-success btn-sm" @onclick="RepairShip" disabled="@(State.Hull >= State.MaxHull || State.Credits < 50)">Repair All</button>
                         </div>
                     </div>
-                }
+
+                    <!-- Market (Standard Stations) -->
+                    @if (currentStation.Type != "Shipyard")
+                    {
+                        <div class="market-panel">
+                            <h3>Commodity Market</h3>
+                            <table class="table table-dark table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Item</th>
+                                        <th>Price</th>
+                                        <th>Cargo</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var item in currentStation.MarketData)
+                                    {
+                                        <tr>
+                                            <td>@item.Key</td>
+                                            <td class="text-warning">@item.Value CR</td>
+                                            <td>@(State.Cargo.ContainsKey(item.Key) ? State.Cargo[item.Key] : 0)</td>
+                                            <td>
+                                                <div class="market-actions">
+                                                    <button class="btn-action buy" @onclick="() => Buy(item.Key, item.Value)">BUY</button>
+                                                    <button class="btn-action buy-max" @onclick="() => BuyMax(item.Key, item.Value)">MAX</button>
+                                                    
+                                                    <button class="btn-action sell" @onclick="() => Sell(item.Key, (int)(item.Value * 0.8))">SELL</button>
+                                                    <button class="btn-action sell-max" @onclick="() => SellMax(item.Key, (int)(item.Value * 0.8))">MAX</button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+
+                    <!-- Shipyard (Shipyard Only) -->
+                    @if (currentStation.Type == "Shipyard")
+                    {
+                        <div class="market-panel" style="width: 500px;">
+                            <h3>Shipyard Dealership</h3>
+                            <div class="ship-list">
+                                @foreach (var ship in SpaceBlazor.Models.ShipClass.Catalog)
+                                {
+                                    var currentShip = State.CurrentShip; // The static def for Trade-In
+                                    int tradeIn = (int)(currentShip.Price * 0.5f);
+                                    int netCost = ship.Price - tradeIn;
+                                    bool canAfford = State.Credits >= netCost;
+                                    bool isOwned = State.CurrentShipClassId == ship.Id;
+
+                                    <div class="ship-card @(isOwned ? "owned" : "")">
+                                        <div class="ship-header">
+                                            <span class="ship-name">@ship.Name</span>
+                                            <span class="ship-price">@(isOwned ? "OWNED" : $"{netCost:N0} CR")</span>
+                                        </div>
+                                        <div class="ship-stats">
+                                            <div>HP: @ship.MaxHull</div>
+                                            <div>Cargo: @ship.CargoCapacity</div>
+                                            <div>Speed: @ship.SpeedMultiplier x</div>
+                                            <div>Guns: @ship.Hardpoints</div>
+                                        </div>
+                                        <div class="ship-desc">@ship.Description</div>
+                                        @if (!isOwned)
+                                        {
+                                            <button class="btn btn-primary btn-sm btn-block" disabled="@(!canAfford)" @onclick="() => PurchaseShip(ship)">
+                                                PURCHASE (Trade-In: @tradeIn CR)
+                                            </button>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
             </div>
-        </div>
+        }
     }
 
     <!-- Sector Map -->
@@ -848,9 +866,40 @@
         // AutoNav: Continue?
         if (State.IsAutoNavigating)
         {
-            await Task.Delay(1000); // Wait for load
-            ProcessNextAutoNavStep();
+             await JSRuntime.InvokeVoidAsync("spaceRenderer.engageAutopilotByName", "jumpGate");
         }
+    }
+
+    // --- Planetary Landing Logic ---
+    private bool isInPlanet = false;
+    private bool canLand = false;
+    private string landingPlanetName = "";
+
+    [JSInvokable]
+    public void SetLandingAvailable(bool available, string planetName)
+    {
+        if (canLand != available || landingPlanetName != planetName)
+        {
+            canLand = available;
+            landingPlanetName = planetName;
+            StateHasChanged();
+        }
+    }
+
+    [JSInvokable]
+    public void EnterPlanet()
+    {
+        isInPlanet = true;
+        StateHasChanged();
+    }
+
+    private async Task LaunchFromPlanet()
+    {
+        isInPlanet = false;
+        StateHasChanged();
+        
+        // Resume flight logic in JS
+        await JSRuntime.InvokeVoidAsync("spaceRenderer.exitPlanetMode");
     }
 
     private string GetTradeHint(string type)

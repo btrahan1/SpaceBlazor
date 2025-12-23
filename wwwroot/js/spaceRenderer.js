@@ -120,41 +120,59 @@ window.spaceRenderer = {
         // Engine Hum
         updateEngine: function (speedRatio) {
             if (!this.isInit || this.isMuted) return;
+            // [NEW] Silence if Landing or Landed
+            if (window.spaceRenderer.isLanding || window.spaceRenderer.isLanded) { // Access via global or ensure scope
+                // We can't access 'this.isLanded' easily inside SFX object unless we bind or pass it.
+                // Actually sfx is a property of spaceRenderer, so 'this' is sfx.
+                // We need to pass the state or check parent.
+                // Easier: Modify updateShip to NOT call this function if landed.
+
+                // Fallback silence
+                if (this.engineGain) this.engineGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.1);
+                return;
+            }
+
             // [FIX] Ensure Context is Awake
             if (this.ctx.state === 'suspended') this.ctx.resume();
 
             // Lazy Init Engine
             if (!this.engineOsc) {
                 this.engineOsc = this.ctx.createOscillator();
-                this.engineOsc.type = 'sawtooth'; // Rougher "Grrr"
-
-                // Filter for "Muffler" effect
-                this.engineFilter = this.ctx.createBiquadFilter();
-                this.engineFilter.type = 'lowpass';
-
                 this.engineGain = this.ctx.createGain();
-                this.engineGain.gain.value = 0;
+                this.engineFilter = this.ctx.createBiquadFilter();
 
-                // Chain: Osc -> Filter -> Gain -> Master
+                // [Spacey] Triangle Wave = Electric/Magnetic Hum
+                this.engineOsc.type = 'triangle';
+                this.engineOsc.frequency.value = 60; // 60Hz Base Hum
+
+                // [Spacey] Lowpass with Resonance (Q) = Turbine Whine
+                this.engineFilter.type = 'lowpass';
+                this.engineFilter.frequency.value = 400;
+                this.engineFilter.Q.value = 5; // Resonant Peak for the "Whistle"
+
                 this.engineOsc.connect(this.engineFilter);
                 this.engineFilter.connect(this.engineGain);
                 this.engineGain.connect(this.masterGain);
+
+                this.engineGain.gain.setValueAtTime(0, this.ctx.currentTime);
                 this.engineOsc.start();
             }
 
             var now = this.ctx.currentTime;
 
-            // RPM: 40Hz -> 100Hz (Deep Rumble)
-            var targetFreq = 40 + (speedRatio * 60);
-            this.engineOsc.frequency.setTargetAtTime(targetFreq, now, 0.1);
+            // [Spacey] Ion Drive Logic
+            // Pitch: 60Hz -> 200Hz (Electric wind-up)
+            var targetFreq = 50 + (speedRatio * 150);
 
-            // Throttle (Filter Open): 100Hz -> 600Hz (The "Roar")
-            var targetCutoff = 100 + (speedRatio * 500);
-            this.engineFilter.frequency.setTargetAtTime(targetCutoff, now, 0.1);
+            // Filter: 300Hz -> 1500Hz (Opening the intake/whine)
+            var targetCutoff = 300 + (speedRatio * 1200);
 
-            // Volume
-            var targetVol = 0.2 + (speedRatio * 0.3);
-            this.engineGain.gain.setTargetAtTime(targetVol, now, 0.1);
+            this.engineOsc.frequency.setTargetAtTime(targetFreq, this.ctx.currentTime, 0.1);
+            this.engineFilter.frequency.setTargetAtTime(targetCutoff, this.ctx.currentTime, 0.1);
+
+            // Volume: 0.1 (Idle Hum) -> 0.4 (Full Thrust)
+            var targetVol = 0.1 + (speedRatio * 0.3);
+            this.engineGain.gain.setTargetAtTime(targetVol, this.ctx.currentTime, 0.1);
         }
     },
 
@@ -247,6 +265,10 @@ window.spaceRenderer = {
         this.camera.maxCameraSpeed = 20; // Speed limit
         this.camera.lockedTarget = this.ship; // Target the ship
 
+        // [NEW] Cinematic Camera (for Landings/Cutscenes)
+        this.cinematicCamera = new BABYLON.UniversalCamera("CinematicCam", new BABYLON.Vector3(0, 0, 0), this.scene);
+        this.cinematicCamera.rotation = new BABYLON.Vector3(0, 0, 0);
+
         // this.camera.attachControl(this.canvas, true); // DISABLED: Using Custom Ship Steering
 
         // Input Handling
@@ -274,6 +296,11 @@ window.spaceRenderer = {
                 if (this.dotNetRef) {
                     this.dotNetRef.invokeMethodAsync("CancelAutoNav");
                 }
+            }
+
+            // Shift+L: Auto-Land (Cheat/Fast Travel)
+            if (key === "l" && evt.sourceEvent.shiftKey && evt.sourceEvent.type == "keydown") {
+                this.forceLandNearest();
             }
 
             // Fire Laser on Space (Single Press)
@@ -724,27 +751,190 @@ window.spaceRenderer = {
 
         // Threshold = 50 units
         if (nearestStation && minDist < 50) {
-            if (!this.canDock) {
-                this.canDock = true;
-                this.dockTargetId = nearestStation.name.substring(12); // Remove "stationRoot_"
-
-                // Notify C# (Debounced)
-                if (this.dotNetRef) {
-                    this.dotNetRef.invokeMethodAsync("SetDockingAvailable", true, this.dockTargetId);
-                }
-            }
-        } else {
-            if (this.canDock) {
-                this.canDock = false;
-                this.dockTargetId = null;
-                // Notify C#
-                if (this.dotNetRef) {
-                    this.dotNetRef.invokeMethodAsync("SetDockingAvailable", false, null);
-                }
+            if (this.dotNetRef) {
+                this.dotNetRef.invokeMethodAsync("SetDockingAvailable", false, null);
             }
         }
     },
 
+    // [NEW] Landing Logic
+    checkLandingProximity: function () {
+        if (!this.shipBody || !this.systemMeshes) return;
+
+        var minDist = 10000;
+        var nearestPlanet = null;
+
+        // Find nearest planet
+        this.systemMeshes.forEach(m => {
+            if (m.name.startsWith("planet_")) {
+                var dist = BABYLON.Vector3.Distance(this.shipBody.absolutePosition, m.position);
+                // Size of planet usually ~200-500. Distance needs to be relative to surface.
+                // Let's say < 400 units from center (assuming avg radius 100-200)
+                if (dist < 400 && dist < minDist) {
+                    minDist = dist;
+                    nearestPlanet = m;
+                }
+            }
+        });
+
+        if (nearestPlanet) {
+            if (!this.canLand) { // Change State
+                this.canLand = true;
+                this.landingTarget = nearestPlanet;
+                var pName = nearestPlanet.name.substring(7); // Remove "planet_"
+
+                // Notify C# 
+                if (this.dotNetRef) {
+                    this.dotNetRef.invokeMethodAsync("SetLandingAvailable", true, pName);
+                }
+            }
+        } else {
+            if (this.canLand) {
+                this.canLand = false;
+                this.landingTarget = null;
+                if (this.dotNetRef) {
+                    this.dotNetRef.invokeMethodAsync("SetLandingAvailable", false, null);
+                }
+            }
+        }
+
+        // Input: L to Land
+        if (this.canLand && this.inputMap["l"] && !this.inputMap["shift"]) {
+            this.startLandingSequence();
+        }
+    },
+
+    forceLandNearest: function () {
+        if (!this.systemMeshes || this.isLanding) return;
+
+        var minDist = 999999;
+        var nearestPlanet = null;
+
+        this.systemMeshes.forEach(m => {
+            if (m.name.startsWith("planet_")) {
+                var dist = BABYLON.Vector3.Distance(this.ship.position, m.position);
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearestPlanet = m;
+                }
+            }
+        });
+
+        if (nearestPlanet) {
+            console.log("Auto-Landing at " + nearestPlanet.name);
+
+            // 1. Set Target
+            this.landingTarget = nearestPlanet;
+
+            // 2. Teleport Ship to Approach Vector (600 units out from planet center)
+            // Vector from Planet to Ship (or default Z if too close/inside)
+            var dir = this.ship.position.subtract(nearestPlanet.position).normalize();
+            if (dir.length() < 0.1) dir = new BABYLON.Vector3(0, 0, 1);
+
+            var approachPos = nearestPlanet.position.add(dir.scale(600));
+            this.ship.position.copyFrom(approachPos);
+            // Look at planet
+            this.ship.lookAt(nearestPlanet.position);
+
+            // 3. Start Sequence
+            this.startLandingSequence();
+        }
+    },
+
+    startLandingSequence: function () {
+        if (this.isLanding) return;
+        this.isLanding = true;
+        console.log("Initiating Cinematic Landing (5s)...");
+
+        // 1. Disable Controls
+        document.exitPointerLock();
+        this.isCruising = false;
+
+        // 2. Audio: Kill Engine Hum immediatley
+        // 2. Audio: Kill Engine Hum immediatley
+        if (this.sfx.engineGain) this.sfx.engineGain.gain.setTargetAtTime(0, this.sfx.ctx.currentTime, 0.5);
+
+        // 3. Camera Switch: Main -> Cinematic
+        if (this.cinematicCamera && this.camera) {
+            // Match main camera pos/rot
+            this.cinematicCamera.position.copyFrom(this.camera.position);
+            // UniversalCam needs rotation (Quaternion vs Euler is tricky), but FollowCam usually sets rotation to look at target.
+            this.cinematicCamera.setTarget(this.ship.position);
+
+            // Activate
+            this.scene.activeCamera = this.cinematicCamera;
+        }
+
+        // 4. Camera Animation (Move to Chase View)
+        var startCamPos = this.cinematicCamera.position.clone();
+        var camOffset = this.ship.forward.scale(-40).add(this.ship.up.scale(15)); // High & Behind
+        var targetCamPos = this.ship.position.add(camOffset);
+
+        var animCam = new BABYLON.Animation("camPos", "position", 60, BABYLON.Animation.ANIMATIONTYPE_VECTOR3, BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT);
+        animCam.setKeys([{ frame: 0, value: startCamPos }, { frame: 60, value: targetCamPos }]);
+        this.cinematicCamera.animations = [animCam];
+        this.scene.beginAnimation(this.cinematicCamera, 0, 60, false);
+
+        // 5. Ship Descent Animation (5 Seconds = 300 frames)
+        var startShipPos = this.ship.position.clone();
+        var planetPos = this.landingTarget.position.clone();
+        // Aim for "atmosphere" (radius + something)
+        var direction = planetPos.subtract(startShipPos).normalize();
+        var descentEndPos = startShipPos.add(direction.scale(400)); // Fly 400 units towards planet
+
+        var animShip = new BABYLON.Animation("shipDescent", "position", 60, BABYLON.Animation.ANIMATIONTYPE_VECTOR3, BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT);
+        animShip.setKeys([{ frame: 0, value: startShipPos }, { frame: 300, value: descentEndPos }]);
+        this.ship.animations = [animShip];
+        this.scene.beginAnimation(this.ship, 0, 300, false);
+
+        // 6. FX Loop (Shake + LookAt)
+        var frame = 0;
+        var duration = 300;
+        var burnObserver = this.scene.onBeforeRenderObservable.add(() => {
+            frame++;
+            if (frame > duration) {
+                this.scene.onBeforeRenderObservable.remove(burnObserver);
+                return;
+            }
+
+            // Keep Camera looking at Ship
+            if (this.cinematicCamera) this.cinematicCamera.setTarget(this.ship.position);
+
+            // Shake (Increases with time)
+            var intensity = (frame / duration) * 3.0; // Stronger Shake (0 -> 3.0)
+            var shake = new BABYLON.Vector3((Math.random() - 0.5) * intensity, (Math.random() - 0.5) * intensity, (Math.random() - 0.5) * intensity);
+            if (this.cinematicCamera) this.cinematicCamera.position.addInPlace(shake);
+        });
+
+        // 7. Transition
+        setTimeout(() => {
+            this.enterPlanetMode();
+            if (this.dotNetRef) {
+                this.dotNetRef.invokeMethodAsync("EnterPlanet");
+            }
+            this.isLanding = false;
+        }, 5000);
+    },
+
+    enterPlanetMode: function () {
+        this.isLanded = true;
+        // Force Silence
+        if (this.sfx && this.sfx.engineGain) {
+            this.sfx.engineGain.gain.cancelScheduledValues(this.sfx.ctx.currentTime);
+            this.sfx.engineGain.gain.setValueAtTime(0, this.sfx.ctx.currentTime);
+        }
+    },
+
+    exitPlanetMode: function () {
+        this.isLanded = false;
+
+        // Restore Main Camera
+        if (this.camera) this.scene.activeCamera = this.camera;
+
+        // Reset Ship (Safe Distance)
+        this.resetShip();
+        console.log("Exited Planet Mode.");
+    },
     // --- Navigation & Visuals ---
 
     setupWaypoints: function () {
@@ -861,16 +1051,26 @@ window.spaceRenderer = {
         if (!this.scene) return;
 
         try {
+            if (this.isLanded) return; // [NEW] PAUSE SIMULATION when Landed
+
             this.updateShip();
-            this.updateLasers();
-            this.updateEnemies();
-            this.checkCollisions();
+            // Don't update enemies/lasers if landed? 
+            if (!this.isLanding) { // Also pause combat during landing cinematic? Maybe kept for drama?
+                this.updateLasers();
+                this.updateEnemies();
+                this.checkCollisions();
+            }
             this.checkGateCollisions();
             this.checkDockingProximity();
             this.updateSpaceDust();
             this.updateWaypoints();
             this.updateWarpEffect();
+            this.updateWaypoints();
+            this.updateWarpEffect();
             this.updateRadar();
+
+            // [NEW] Landing Check
+            this.checkLandingProximity();
         } catch (e) {
             console.error("Render Loop Error:", e);
         }
