@@ -86,6 +86,15 @@
             await SendChatMessage();
         }
     }
+    private PlayerListModal playerListModal;
+
+    private async Task OpenPlayers()
+    {
+        if (State.IsMultiplayerEnabled)
+        {
+            await playerListModal.Show();
+        }
+    }
 }
 
 <div class="hud-container">
@@ -172,6 +181,12 @@
             {
                 <span style="font-size: 10px; color: gold; margin-right: 5px; animation: blink 0.5s infinite;">CLOUD SYNCED</span>
             }
+            
+            @if (State.IsMultiplayerEnabled)
+            {
+                <button class="btn-hud" @onclick="OpenPlayers">PLAYERS</button>
+            }
+
             <button class="btn-hud" @onclick="OpenSave">SAVE</button>
             <button class="btn-hud" @onclick="OpenLoad">@(State.IsMultiplayerEnabled ? "DATA" : "LOAD")</button>
         </div>
@@ -205,6 +220,7 @@
 </div>
 
 <SaveLoadModal @ref="saveModal" OnLoadComplete="OnLoadComplete" />
+<PlayerListModal @ref="playerListModal" />
 
 <style>
     .persist-controls {

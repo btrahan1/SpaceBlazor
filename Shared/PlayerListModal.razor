@@ -1,0 +1,146 @@
+@inject SpaceBlazor.Services.GameState State
+@inject SpaceBlazor.Services.FirebaseService Firebase
+
+@if (IsVisible)
+{
+    <div class="modal-overlay" @onmousedown:stopPropagation @onclick:stopPropagation>
+        <div class="modal-terminal">
+            <div class="modal-header">
+                <span>UNIVERSE DIRECTORY</span>
+                <button class="close-btn" @onclick="Close">X</button>
+            </div>
+
+            <div class="modal-content">
+                @if (isLoading)
+                {
+                    <div class="loading">SCANNING SECTOR REGISTRIES...</div>
+                }
+                else
+                {
+                    <div class="player-list">
+                        <div class="list-header">
+                            <span>PILOT</span>
+                            <span>STATUS</span>
+                        </div>
+                        <div class="scroll-area">
+                            @foreach (var player in State.UniversePlayers.OrderByDescending(p => p.IsActive).ThenBy(p => p.Callsign))
+                            {
+                                <div class="player-row @(player.Callsign == State.Callsign ? "is-me" : "")">
+                                    <div class="pilot-info">
+                                        <div class="p-name">@(player.Callsign == State.Callsign ? "YOU" : player.Callsign)</div>
+                                        <div class="p-meta">@player.CurrentSystemId | @player.ShipClassId.ToUpper()</div>
+                                    </div>
+                                    <div class="status-tag @(player.IsActive ? "active" : "dormant")">
+                                        @(player.IsActive ? "ACTIVE" : "DORMANT")
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+                <div style="margin-top: 15px; text-align:center;">
+                    <button class="btn-terminal" @onclick="Refresh">REFRESH REGISTRY</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .loading { color: #555; text-align: center; padding: 20px; }
+    
+    .player-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .list-header {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.7rem;
+        color: rgba(0, 255, 255, 0.5);
+        border-bottom: 1px solid rgba(0, 255, 255, 0.2);
+        padding-bottom: 5px;
+    }
+
+    .scroll-area {
+        max-height: 400px;
+        overflow-y: auto;
+        padding-right: 5px;
+    }
+    
+    .scroll-area::-webkit-scrollbar { width: 5px; }
+    .scroll-area::-webkit-scrollbar-thumb { background: cyan; }
+
+    .player-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px;
+        border-bottom: 1px solid rgba(0, 255, 0, 0.1);
+        margin-bottom: 2px;
+    }
+    .player-row.is-me {
+        background: rgba(0, 255, 255, 0.05);
+        border: 1px solid cyan;
+    }
+
+    .pilot-info { display: flex; flex-direction: column; }
+    .p-name { color: white; font-weight: bold; }
+    .p-meta { font-size: 0.7rem; color: #777; }
+
+    .status-tag {
+        font-size: 0.7rem;
+        padding: 2px 6px;
+        border-radius: 2px;
+    }
+    .status-tag.active { 
+        background: rgba(0, 255, 0, 0.2); 
+        color: lime; 
+        border: 1px solid lime;
+    }
+    .status-tag.dormant { 
+        background: rgba(50, 50, 50, 0.5); 
+        color: #555; 
+        border: 1px solid #333;
+    }
+</style>
+
+@code {
+    private bool IsVisible = false;
+    private bool isLoading = false;
+
+    public async Task Show()
+    {
+        IsVisible = true;
+        await Refresh();
+    }
+
+    public void Close()
+    {
+        IsVisible = false;
+        StateHasChanged();
+    }
+
+    private async Task Refresh()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        var players = await Firebase.GetAllPlayersAsync();
+        if (players != null)
+        {
+            State.UniversePlayers = players.Select(p => new SpaceBlazor.Services.GlobalPilotProfile
+            {
+                Callsign = p.Key,
+                CurrentSystemId = p.Value.CurrentSystemId ?? "Unknown",
+                ShipClassId = p.Value.ShipClassId ?? "Unknown",
+                LastSeen = p.Value.Timestamp
+            }).ToList();
+        }
+
+        isLoading = false;
+        StateHasChanged();
+    }
+}

@@ -195,9 +195,21 @@ namespace SpaceBlazor.Services
             NotifyStateChanged();
         }
 
+        // [NEW] Universe Directory
+        public List<GlobalPilotProfile> UniversePlayers { get; set; } = new();
+
         public void HasChanged() => NotifyStateChanged();
 
         private void NotifyStateChanged() => OnChange?.Invoke();
+    }
+
+    public class GlobalPilotProfile
+    {
+        public string Callsign { get; set; } = "";
+        public string ShipClassId { get; set; } = "";
+        public string CurrentSystemId { get; set; } = "";
+        public DateTime LastSeen { get; set; }
+        public bool IsActive => (DateTime.UtcNow - LastSeen).TotalMinutes < 5;
     }
 
     public class ChatMessage

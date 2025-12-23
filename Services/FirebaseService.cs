@@ -87,6 +87,11 @@ namespace SpaceBlazor.Services
         {
             return await GetNodeAsync<SaveData>($"players/{callsign}");
         }
+
+        public async Task<Dictionary<string, SaveData>?> GetAllPlayersAsync()
+        {
+            return await GetNodeAsync<Dictionary<string, SaveData>>("players");
+        }
     }
 
     public class UniverseMeta {
