@@ -56,7 +56,12 @@
                             <button class="hub-btn" @onclick="CreateUniverse">INITIALIZE REALITY</button>
                         </div>
 
-                        <button class="back-btn" @onclick="() => showFederationHub = false">BACK TO DEPLOYMENT</button>
+                        <div style="flex-grow:1"></div>
+
+                        <div style="display:flex; gap:10px; justify-content:center; align-items:center;">
+                            <button class="back-btn" @onclick="() => showFederationHub = false">BACK TO DEPLOYMENT</button>
+                            <button class="back-btn alt-btn" @onclick="OpenDonation">FUND R&D</button>
+                        </div>
                     </div>
                 }
 
@@ -1114,6 +1119,12 @@
         _ = RunAutoSaveLoop();
     }
 
+    private async Task OpenDonation()
+    {
+        // [TODO] REPLACE WITH REAL LINK
+        await JSRuntime.InvokeVoidAsync("open", "https://google.com", "_blank");
+    }
+
     private async Task RunAutoSaveLoop()
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
@@ -1523,6 +1534,15 @@
         transition: color 0.2s;
     }
     .back-btn:hover { color: #aaa; border-color: #444; }
+
+    .back-btn.alt-btn {
+        border-color: gold;
+        color: gold;
+    }
+    .back-btn.alt-btn:hover {
+        background: rgba(255, 215, 0, 0.2);
+        box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+    }
 
     .loading-spinner { 
         color: #00ffff; 
