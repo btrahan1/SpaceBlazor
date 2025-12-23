@@ -1,6 +1,7 @@
 @inject SpaceBlazor.Services.GameState State
 @inject SpaceBlazor.Services.GalaxyService Galaxy
 @inject SpaceBlazor.Services.PersistenceService Persist
+@inject IJSRuntime JSRuntime
 @implements IDisposable
 
 @code {
@@ -28,6 +29,14 @@
     private async Task OpenLoad()
     {
         await saveModal.Show("LOAD");
+    }
+
+    private bool isMuted = false;
+
+    private async Task ToggleMute()
+    {
+        isMuted = !isMuted;
+        await JSRuntime.InvokeVoidAsync("spaceRenderer.sfx.setMute", isMuted);
     }
 
     private void OnLoadComplete()
@@ -89,6 +98,12 @@
         </div>
 
         <div class="persist-controls" @onmousedown:stopPropagation @onclick:stopPropagation>
+            <!-- MUTE TOGGLE -->
+            <div style="display:flex; align-items:center; color:cyan; font-size:12px; margin-right:5px; cursor:pointer;" @onclick="ToggleMute">
+                <input type="checkbox" @bind="isMuted" style="cursor:pointer;" />
+                <span style="margin-left:3px;">MUTE</span>
+            </div>
+            
             <button class="btn-hud" @onclick="OpenSave">SAVE</button>
             <button class="btn-hud" @onclick="OpenLoad">LOAD</button>
         </div>
