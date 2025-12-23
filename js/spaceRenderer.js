@@ -302,8 +302,7 @@ window.spaceRenderer = {
         this.lastShotTime = 0; // [NEW] Cooldown
         this.enemies = [];
         this.enemyProjectiles = []; // [NEW] Enemy Lasers
-        this.createEnemies();
-        this.createRaiders(); // [NEW] Spawn Raiders
+        // [FIX] Removed premature spawn. Enemies are spawned in 'loadSystem' -> 'resetCombat'.
 
         // Camera (Follow Ship)
         // Parameters: Name, Position, Scene
