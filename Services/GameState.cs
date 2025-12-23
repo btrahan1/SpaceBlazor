@@ -192,8 +192,27 @@ namespace SpaceBlazor.Services
                 }
             }
             
+            if (!string.IsNullOrEmpty(data.ShipClassId))
+            {
+                var ship = Models.ShipClass.Catalog.FirstOrDefault(s => s.Id == data.ShipClassId);
+                if (ship != null)
+                {
+                    // Use BuyShip to re-calc max values but restore current values from save
+                    BuyShip(ship);
+                    Credits = data.Credits;
+                    Fuel = data.Fuel;
+                    Hull = data.Hull;
+                }
+            }
+            
+            // [NEW] Restore Supporter Status
+            IsSupporter = data.IsSupporter;
+            
             NotifyStateChanged();
         }
+
+        // [NEW] Supporter Status (Active Session)
+        public bool IsSupporter { get; set; }
 
         // [NEW] Universe Directory
         public List<GlobalPilotProfile> UniversePlayers { get; set; } = new();

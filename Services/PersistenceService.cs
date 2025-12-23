@@ -73,7 +73,8 @@ namespace SpaceBlazor.Services
                 PositionX = pos.x,
                 PositionY = pos.y,
                 PositionZ = pos.z,
-                Timestamp = DateTime.UtcNow
+                Timestamp = DateTime.UtcNow,
+                IsSupporter = state.IsSupporter // [NEW] Persist Status
             };
 
             var key = $"SpaceBlazor_Save_{name}";

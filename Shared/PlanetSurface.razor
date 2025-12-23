@@ -22,6 +22,11 @@
             <p>Trade commodities.</p>
         </div>
 
+        <div class="menu-card" @onclick="ShowShipyard">
+            <h3>🚀 Shipyard</h3>
+            <p>Upgrade your vessel.</p>
+        </div>
+
         <div class="menu-card" @onclick="ShowGuild">
             <h3>⚔️ Mercenary Guild</h3>
             <p>Bounties and contracts.</p>
@@ -37,7 +42,7 @@
     @if (activePanel != null)
     {
         <div class="city-panel-overlay">
-            <div class="city-panel">
+            <div class="city-panel @(activePanel == "Shipyard" ? "wide-panel" : "")">
                 <button class="close-btn" @onclick="ClosePanel">X</button>
                 @if (activePanel == "Tavern")
                 {
@@ -59,6 +64,45 @@
                             <span class="reward">Reward: @bountyReward CR</span>
                         </div>
                         <p><i>Last seen in Sector @bountySector...</i></p>
+                    </div>
+                }
+                else if (activePanel == "Shipyard")
+                {
+                    <h2>Imperial Shipyard</h2>
+                    <div class="ship-grid">
+                        @foreach (var ship in SpaceBlazor.Models.ShipClass.Catalog)
+                        {
+                            var isOwned = State.CurrentShipClassId == ship.Id;
+                            var canBuy = State.Credits >= ship.Price;
+                            var isLocked = ship.IsPremium && !State.IsSupporter;
+                            
+                            <div class="ship-card @(isOwned ? "owned" : "") @(ship.IsPremium ? "premium" : "")">
+                                <h4>@ship.Name</h4>
+                                <p class="desc">@ship.Description</p>
+                                <div class="stats">
+                                    <span>Hull: @ship.MaxHull</span>
+                                    <span>Cargo: @ship.CargoCapacity</span>
+                                    <span>Hardpoints: @ship.Hardpoints</span>
+                                </div>
+                                
+                                @if (isOwned)
+                                {
+                                    <button class="btn-ship owned" disabled>OWNED</button>
+                                }
+                                else if (isLocked)
+                                {
+                                    <button class="btn-ship locked" disabled>SUPPORTER ONLY</button>
+                                }
+                                else if (canBuy)
+                                {
+                                    <button class="btn-ship buy" @onclick="() => BuyShip(ship)">BUY (@ship.Price cr)</button>
+                                }
+                                else
+                                {
+                                    <button class="btn-ship disabled" disabled>@ship.Price cr</button>
+                                }
+                            </div>
+                        }
                     </div>
                 }
             </div>
@@ -137,6 +181,9 @@
         padding: 40px;
         position: relative;
     }
+    .city-panel.wide-panel {
+        width: 900px;
+    }
     .close-btn {
         position: absolute;
         top: 10px; right: 10px;
@@ -152,6 +199,35 @@
         background: #004466; color: white; border: none; padding: 10px 20px; cursor: pointer;
     }
     .btn-action:hover { background: cyan; color: black; }
+
+    /* Shipyard Styles */
+    .ship-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+        margin-top: 20px;
+    }
+    .ship-card {
+        background: rgba(0,0,0,0.5);
+        border: 1px solid #004466;
+        padding: 15px;
+        text-align: left;
+    }
+    .ship-card.owned { border-color: lime; }
+    .ship-card.premium { border-color: #ffd700; background: rgba(50, 40, 0, 0.6); }
+    
+    .ship-card h4 { margin: 0 0 5px 0; color: cyan; }
+    .ship-card.premium h4 { color: #ffd700; }
+    
+    .desc { font-size: 0.8em; color: #aaa; height: 3em; overflow: hidden; }
+    .stats { font-size: 0.8em; margin: 10px 0; display: flex; flex-direction: column; gap: 2px; }
+    
+    .btn-ship { width: 100%; padding: 8px; border: none; cursor: pointer; font-weight: bold; }
+    .btn-ship.buy { background: cyan; color: black; }
+    .btn-ship.buy:hover { background: white; }
+    .btn-ship.owned { background: lime; color: black; cursor: default; }
+    .btn-ship.locked { background: #333; color: #ffd700; cursor: default; border: 1px solid #ffd700; }
+    .btn-ship.disabled { background: #333; color: #666; cursor: default; }
 </style>
 
 @code {
@@ -168,6 +244,7 @@
 
     private void ShowTavern() => activePanel = "Tavern";
     private void ShowMarket() => activePanel = "Market";
+    private void ShowShipyard() => activePanel = "Shipyard";
     private void ShowGuild() => activePanel = "Guild";
     private void Launch() => OnLaunch.InvokeAsync();
     
@@ -183,5 +260,16 @@
         };
         flavorText = gossips[new Random().Next(gossips.Length)];
         // Deduct credits? State.Credits -= 50;
+    }
+    
+    private void BuyShip(SpaceBlazor.Models.ShipClass ship)
+    {
+        if (State.Credits >= ship.Price)
+        {
+            // [TODO] Trade-in value? For now, just buy full price.
+            State.ModifyCredits(-ship.Price);
+            State.BuyShip(ship);
+            StateHasChanged();
+        }
     }
 }

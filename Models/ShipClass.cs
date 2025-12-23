@@ -14,6 +14,7 @@ namespace SpaceBlazor.Models
         public int CargoCapacity { get; set; }
         public float SpeedMultiplier { get; set; }
         public int Hardpoints { get; set; }
+        public bool IsPremium { get; set; } // [NEW] Founder's Reward
 
         // Catalog
         public static List<ShipClass> Catalog = new()
@@ -41,6 +42,14 @@ namespace SpaceBlazor.Models
                 Id = "cobra", Name = "Cobra Mk III", Price = 75000, 
                 MaxHull = 200, MaxFuel = 80, CargoCapacity = 40, SpeedMultiplier = 1.2f, Hardpoints = 4,
                 Description = "The ultimate privateer vessel."
+            },
+            // [NEW] Supporter Exclusive
+            new ShipClass 
+            { 
+                Id = "cobra_gold", Name = "Golden Cobra", Price = 0, 
+                MaxHull = 250, MaxFuel = 100, CargoCapacity = 50, SpeedMultiplier = 1.3f, Hardpoints = 4,
+                Description = "A limited edition vessel for Federation Founders.",
+                IsPremium = true
             }
         };
     }

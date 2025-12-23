@@ -219,8 +219,15 @@ window.spaceRenderer = {
     },
 
     init: function (canvasId, dotNetRef, system) {
+        // [FIX] Prevent Double Init (Ghost Entity Cause)
+        if (this.scene) {
+            console.log("Renderer already initialized. Skipping init.");
+            return;
+        }
+
         this.canvas = document.getElementById(canvasId);
         this.engine = new BABYLON.Engine(this.canvas, true);
+        this.scene = new BABYLON.Scene(this.engine);
 
         // [NEW] Set Reference immediately
         this.dotNetRef = dotNetRef;
@@ -234,15 +241,12 @@ window.spaceRenderer = {
         this.canDock = false;
         this.systemMeshes = []; // [FIX] Initialize immediately
         this.lasers = [];       // [FIX] Initialize immediately
+        this.enemies = [];      // [FIX] Initialize immediately
+        this.enemyProjectiles = [];
 
         // Create Scene
         this.scene = new BABYLON.Scene(this.engine);
         this.scene.clearColor = new BABYLON.Color4(0, 0, 0, 1); // Deep Space Black
-
-        // Load Initial System if provided
-        if (system) {
-            this.loadSystem(system);
-        }
 
 
         // Light (Sun)
@@ -297,11 +301,9 @@ window.spaceRenderer = {
         this.createSpaceDust();
 
         // Create Player Ship
+        // Create Player Ship
         this.createPlayerShip();
-        this.lasers = []; // [FIX] Reverted to 'lasers' to match existing updateLasers function
         this.lastShotTime = 0; // [NEW] Cooldown
-        this.enemies = [];
-        this.enemyProjectiles = []; // [NEW] Enemy Lasers
         // [FIX] Removed premature spawn. Enemies are spawned in 'loadSystem' -> 'resetCombat'.
 
         // Camera (Follow Ship)
@@ -383,6 +385,12 @@ window.spaceRenderer = {
         window.addEventListener("resize", () => {
             this.engine.resize();
         });
+
+        // [FIX] Load System LAST (Start Level)
+        // Ensure arrays and ship are ready before spawning enemies
+        if (system) {
+            this.loadSystem(system);
+        }
 
         // Mouse Wheel Zoom
         this.canvas.addEventListener("wheel", (evt) => {
@@ -1847,17 +1855,26 @@ window.spaceRenderer = {
         var hullMat = new BABYLON.StandardMaterial("hullMat", this.scene);
 
         // Visual Variation
-        if (shipType === "Mining Barge") {
+        // Visual Variation
+        if (shipType === "Mining Barge" || shipType === "hauler") {
             hullMat.diffuseColor = new BABYLON.Color3(1.0, 0.8, 0.2); // Yellow
             body.scaling = new BABYLON.Vector3(2, 1, 2); // Fat
-        } else if (shipType === "Interceptor") {
+        } else if (shipType === "Interceptor" || shipType === "viper") {
             hullMat.diffuseColor = new BABYLON.Color3(0.8, 0.1, 0.1); // Red
             body.scaling = new BABYLON.Vector3(0.8, 1, 0.8); // Sleek
+        } else if (shipType === "cobra_gold") {
+            // [NEW] Golden Cobra Skin
+            hullMat.diffuseColor = new BABYLON.Color3(1.0, 0.84, 0.0); // Gold
+            hullMat.specularColor = new BABYLON.Color3(1, 1, 0.8); // Sharp bright highlights
+            hullMat.emissiveColor = new BABYLON.Color3(0.2, 0.15, 0.0); // Inner glow
+            body.scaling = new BABYLON.Vector3(1.2, 1, 1.2); // Slightly wider (Cobra shape)
         } else {
             hullMat.diffuseColor = new BABYLON.Color3(0.7, 0.7, 0.8); // Silver (Default)
         }
 
-        hullMat.specularColor = new BABYLON.Color3(1, 1, 1);
+        if (shipType !== "cobra_gold") {
+            hullMat.specularColor = new BABYLON.Color3(1, 1, 1);
+        }
         body.material = hullMat;
 
         this.shipBody = body; // FIX: Expose body for collision checks
