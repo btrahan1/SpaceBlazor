@@ -210,6 +210,7 @@ namespace SpaceBlazor.Services
         public string CurrentSystemId { get; set; } = "";
         public DateTime LastSeen { get; set; }
         public bool IsActive => (DateTime.UtcNow - LastSeen).TotalMinutes < 5;
+        public bool IsSupporter { get; set; }
     }
 
     public class ChatMessage

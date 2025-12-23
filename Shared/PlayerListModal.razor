@@ -23,11 +23,14 @@
                             <span>STATUS</span>
                         </div>
                         <div class="scroll-area">
-                            @foreach (var player in State.UniversePlayers.OrderByDescending(p => p.IsActive).ThenBy(p => p.Callsign))
+                            @foreach (var player in State.UniversePlayers.OrderByDescending(p => p.IsSupporter).ThenByDescending(p => p.IsActive).ThenBy(p => p.Callsign))
                             {
-                                <div class="player-row @(player.Callsign == State.Callsign ? "is-me" : "")">
+                                <div class="player-row @(player.Callsign == State.Callsign ? "is-me" : "") @(player.IsSupporter ? "is-supporter" : "")">
                                     <div class="pilot-info">
-                                        <div class="p-name">@(player.Callsign == State.Callsign ? "YOU" : player.Callsign)</div>
+                                        <div class="p-name">
+                                            @(player.Callsign == State.Callsign ? "YOU" : player.Callsign)
+                                            @if (player.IsSupporter) { <span class="sup-badge">★</span> }
+                                        </div>
                                         <div class="p-meta">@player.CurrentSystemId | @player.ShipClassId.ToUpper()</div>
                                     </div>
                                     <div class="status-tag @(player.IsActive ? "active" : "dormant")">
@@ -85,9 +88,18 @@
         background: rgba(0, 255, 255, 0.05);
         border: 1px solid cyan;
     }
+    
+    .player-row.is-supporter {
+        border-left: 3px solid gold;
+        background: linear-gradient(90deg, rgba(255, 215, 0, 0.1), transparent);
+    }
 
     .pilot-info { display: flex; flex-direction: column; }
     .p-name { color: white; font-weight: bold; }
+    .player-row.is-supporter .p-name { color: gold; text-shadow: 0 0 5px gold; }
+    
+    .sup-badge { color: gold; margin-left: 5px; font-size: 0.8rem; }
+
     .p-meta { font-size: 0.7rem; color: #777; }
 
     .status-tag {
@@ -136,7 +148,8 @@
                 Callsign = p.Key,
                 CurrentSystemId = p.Value.CurrentSystemId ?? "Unknown",
                 ShipClassId = p.Value.ShipClassId ?? "Unknown",
-                LastSeen = p.Value.Timestamp
+                LastSeen = p.Value.Timestamp,
+                IsSupporter = p.Value.IsSupporter // [MAP]
             }).ToList();
         }
 

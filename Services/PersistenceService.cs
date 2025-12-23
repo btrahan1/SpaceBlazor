@@ -17,6 +17,8 @@ namespace SpaceBlazor.Services
         public float PositionY { get; set; }
         public float PositionZ { get; set; }
         public DateTime Timestamp { get; set; }
+        // [NEW] Supporter Status
+        public bool IsSupporter { get; set; } = false;
     }
 
     public class PersistenceService
