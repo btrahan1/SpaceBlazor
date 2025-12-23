@@ -1716,14 +1716,22 @@ window.spaceRenderer = {
 
         var laser = BABYLON.MeshBuilder.CreateBox("eLaser", { width: 0.5, height: 0.5, depth: 12 }, this.scene);
         laser.position = enemy.position.clone();
-        laser.lookAt(this.ship.position); // Aim at player current pos
+
+        // [FIX] Dumbfire Logic: Aim where the ship is pointing!
+        // This prevents "sideways firing" if the turn isn't complete.
+        if (enemy.rotationQuaternion) {
+            laser.rotationQuaternion = enemy.rotationQuaternion.clone();
+        } else {
+            laser.rotation.copyFrom(enemy.rotation);
+        }
 
         var mat = new BABYLON.StandardMaterial("eLaserMat", this.scene);
         mat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red
         mat.disableLighting = true;
         laser.material = mat;
 
-        laser.direction = laser.forward.scale(2); // Reduced speed vs Player (5)
+        // Use Enemy's Forward Vector (Nose Aim)
+        laser.direction = enemy.forward.scale(2.0); // Speed 2.0
         laser.life = 100;
 
         this.sfx.laser(true); // Enemy Laser
@@ -1740,9 +1748,12 @@ window.spaceRenderer = {
             // Check Hit Player
             if (this.shipBody && laser.intersectsMesh(this.shipBody, true)) {
                 // HIT PLAYER
-                console.log("WARNING: SHIELD HIT!");
-                // Visual? Flash HUD?
-                // For now, simple console
+                this.createExplosion(laser.position); // Small Hit Effect
+
+                if (this.dotNetRef) {
+                    var dmg = 10; // Standard Damage
+                    this.dotNetRef.invokeMethodAsync("TakeDamage", dmg);
+                }
 
                 laser.dispose();
                 this.enemyProjectiles.splice(i, 1);
@@ -1756,7 +1767,14 @@ window.spaceRenderer = {
         }
     },
 
-    createExplosion: function (position) {
+    createExplosion: function (posOrX, y, z) {
+        var position;
+        if (typeof posOrX === "number") {
+            position = new BABYLON.Vector3(posOrX, y, z);
+        } else {
+            position = posOrX;
+        }
+
         var particleSystem = new BABYLON.ParticleSystem("explosion", 200, this.scene);
         // Use a default particle texture (or create one dynamically if needed)
         // For now, we assume a texture exists or we use a noise texture? 
