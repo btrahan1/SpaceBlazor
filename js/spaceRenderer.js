@@ -76,9 +76,12 @@ window.spaceRenderer = {
 
         // Create Player Ship
         this.createPlayerShip();
-        this.lasers = [];
+        this.lasers = []; // [FIX] Reverted to 'lasers' to match existing updateLasers function
+        this.lastShotTime = 0; // [NEW] Cooldown
         this.enemies = [];
+        this.enemyProjectiles = []; // [NEW] Enemy Lasers
         this.createEnemies();
+        this.createRaiders(); // [NEW] Spawn Raiders
 
         // Camera (Follow Ship)
         // Parameters: Name, Position, Scene
@@ -99,8 +102,8 @@ window.spaceRenderer = {
             var key = evt.sourceEvent.key.toLowerCase();
             this.inputMap[key] = evt.sourceEvent.type == "keydown";
 
-            // Toggle Cruise Control (Shift + W)
-            if (key === "w" && evt.sourceEvent.shiftKey && evt.sourceEvent.type == "keydown") {
+            // Toggle Cruise Control (Shift + R)
+            if (key === "r" && evt.sourceEvent.shiftKey && evt.sourceEvent.type == "keydown") {
                 this.isCruising = !this.isCruising;
                 console.log("Cruise Control:", this.isCruising ? "ON" : "OFF");
             }
@@ -121,6 +124,7 @@ window.spaceRenderer = {
 
             // Fire Laser on Space (Single Press)
             if (key === " " && evt.sourceEvent.type == "keydown") {
+                console.log("Input: SPACE KEY DETECTED");
                 this.shootLaser();
             }
         }));
@@ -232,7 +236,7 @@ window.spaceRenderer = {
             // Only PointerMove
             if (pointerInfo.type !== BABYLON.PointerEventTypes.POINTERMOVE) return;
 
-            var sensitivity = 0.002;
+            var sensitivity = 0.001; // [FIX] Reduced from 0.002
             var dx = pointerInfo.event.movementX || 0;
             var dy = pointerInfo.event.movementY || 0;
 
@@ -242,7 +246,7 @@ window.spaceRenderer = {
                 this.ship.rotation.y += dx * sensitivity;
                 this.ship.rotation.x += dy * sensitivity;
 
-                this.targetRoll = -dx * 0.5;
+                this.targetRoll = -dx * 0.1; // [FIX] Reduced Roll Effect (was 0.5)
             }
         });
     },
@@ -322,6 +326,9 @@ window.spaceRenderer = {
     loadSystem: function (data) {
         console.log("Loading System:", data);
         this.clearSystem();
+
+        // [NEW] Reset Combat (Spawn Enemies)
+        this.resetCombat();
 
         // 1. Update Environment
         // Skybox Color (Tint the texture or just change diffuse?)
@@ -696,16 +703,20 @@ window.spaceRenderer = {
     update: function () {
         if (!this.scene) return;
 
-        // Sub-systems
-        this.updateShip();
-        this.updateLasers();
-        this.checkCollisions();
-        this.checkGateCollisions();
-        this.checkDockingProximity();
-        this.updateSpaceDust();
-        this.updateWaypoints();
-        this.updateWarpEffect();
-        this.updateRadar(); // [FIX] Restore Radar
+        try {
+            this.updateShip();
+            this.updateLasers();
+            this.updateEnemies();
+            this.checkCollisions();
+            this.checkGateCollisions();
+            this.checkDockingProximity();
+            this.updateSpaceDust();
+            this.updateWaypoints();
+            this.updateWarpEffect();
+            this.updateRadar();
+        } catch (e) {
+            console.error("Render Loop Error:", e);
+        }
     },
 
     updateSpaceDust: function () {
@@ -805,70 +816,258 @@ window.spaceRenderer = {
             if (m.name.startsWith("gateRoot_")) ctx.fillStyle = "cyan";
             else if (m.name.startsWith("stationRoot_")) ctx.fillStyle = "lime";
             else if (m.name.startsWith("planet_")) ctx.fillStyle = "blue";
-            else if (m.name.startsWith("enemy_")) ctx.fillStyle = "red";
-            else return; // Don't draw unknown stuff
+            else return;
 
             // Draw Dot
             ctx.beginPath();
             ctx.arc(mapX, mapY, 3, 0, Math.PI * 2);
             ctx.fill();
         });
+
+        // [new] Draw Enemies
+        if (this.enemies) {
+            ctx.fillStyle = "red";
+            this.enemies.forEach(e => {
+                if (e.isDisposed()) return;
+                var relPos = e.position.subtract(this.shipBody.absolutePosition);
+                var rx = relPos.x;
+                var rz = relPos.z;
+                var mapX = cx + (rx / range) * (w / 2);
+                var mapY = cy - (rz / range) * (h / 2);
+
+                // Check Bounds
+                var dist = Math.sqrt((mapX - cx) * (mapX - cx) + (mapY - cy) * (mapY - cy));
+                if (dist > w / 2 - 5) return;
+
+                if (dist > w / 2 - 5) return;
+
+                if (e.type === "raider") {
+                    // Draw Purple X
+                    ctx.strokeStyle = "#D000FF"; // Bright Purple
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(mapX - 4, mapY - 4);
+                    ctx.lineTo(mapX + 4, mapY + 4);
+                    ctx.moveTo(mapX + 4, mapY - 4);
+                    ctx.lineTo(mapX - 4, mapY + 4);
+                    ctx.stroke();
+                } else {
+                    // Draw Red Dot (Drone)
+                    ctx.fillStyle = "red";
+                    ctx.beginPath();
+                    ctx.arc(mapX, mapY, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            });
+        }
     },
 
     createEnemies: function () {
         var mat = new BABYLON.StandardMaterial("enemyMat", this.scene);
-        mat.diffuseColor = new BABYLON.Color3(1, 0, 0); // Red
-        mat.emissiveColor = new BABYLON.Color3(0.5, 0, 0); // Slight Glow
+        mat.diffuseColor = new BABYLON.Color3(1, 0, 0);
+        mat.emissiveColor = new BABYLON.Color3(0.5, 0, 0);
 
-        // Spawn 10 Random Cubes
+        // Spawn 10 Drones
         for (var i = 0; i < 10; i++) {
-            var enemy = BABYLON.MeshBuilder.CreateBox("enemy" + i, { size: 4 }, this.scene);
+            // Drone Body
+            var enemy = BABYLON.MeshBuilder.CreateSphere("enemy" + i, { diameter: 6, segments: 8 }, this.scene);
 
-            // Random Position in front of player
-            var x = (Math.random() - 0.5) * 100;
-            var y = (Math.random() - 0.5) * 50;
-            var z = 50 + (Math.random() * 200);
+            // Spikes (Visual Aggression)
+            var spike = BABYLON.MeshBuilder.CreateCylinder("s", { height: 12, diameter: 1 }, this.scene);
+            spike.parent = enemy;
+            spike.rotation.x = Math.PI / 2;
+
+            var spike2 = spike.clone();
+            spike2.parent = enemy;
+            spike2.rotation.y = Math.PI / 2;
+
+            // Random Position
+            var x = (Math.random() - 0.5) * 400;
+            var y = (Math.random() - 0.5) * 200;
+            var z = 100 + (Math.random() * 400);
 
             enemy.position = new BABYLON.Vector3(x, y, z);
             enemy.material = mat;
-
-            // Random Rotation visual
-            enemy.rotation = new BABYLON.Vector3(Math.random(), Math.random(), Math.random());
+            enemy.material = mat;
+            enemy.hp = 3; // Health
+            enemy.type = "drone"; // [NEW] AI Type
 
             this.enemies.push(enemy);
         }
     },
 
+    createRaiders: function () {
+        var matBody = new BABYLON.StandardMaterial("raiderBody", this.scene);
+        matBody.diffuseColor = new BABYLON.Color3(0.6, 0.4, 0.9); // Light Purple
+        matBody.specularColor = new BABYLON.Color3(1, 1, 1);
+        matBody.emissiveColor = new BABYLON.Color3(0.1, 0.0, 0.2);
+
+        var matWing = new BABYLON.StandardMaterial("raiderWing", this.scene);
+        matWing.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Dark Grey
+        matWing.emissiveColor = new BABYLON.Color3(0.8, 0, 1); // Purple Trim
+
+        var matEngine = new BABYLON.StandardMaterial("raiderEngine", this.scene);
+        matEngine.emissiveColor = new BABYLON.Color3(0, 1, 1); // Cyan Glow
+
+        // Spawn 3 Raiders
+        for (var i = 0; i < 3; i++) {
+            // Root Node (Driver) - Handles AI Movement
+            var root = new BABYLON.TransformNode("raider" + i, this.scene);
+
+            // Visual Node (Mesh) - Handles Banking/Animation
+            var vis = new BABYLON.TransformNode("raiderVis" + i, this.scene);
+            vis.parent = root;
+
+            // Design: "Viper" Style
+            // Fuselage (Long Hexagon)
+            var body = BABYLON.MeshBuilder.CreateCylinder("r_body", { height: 12, diameter: 2, tessellation: 6 }, this.scene);
+            body.parent = vis;
+            body.rotation.x = Math.PI / 2;
+            body.scaling.x = 0.8; // Flatten slightly
+            body.material = matBody;
+
+            // Nose Cone
+            var nose = BABYLON.MeshBuilder.CreateCylinder("r_nose", { height: 4, diameterBottom: 2, diameterTop: 0, tessellation: 6 }, this.scene);
+            nose.parent = vis;
+            nose.rotation.x = Math.PI / 2;
+            nose.position.z = 8; // In front
+            nose.material = matBody;
+
+            // Wings (Swept Back)
+            var lWing = BABYLON.MeshBuilder.CreateBox("lWing", { width: 6, height: 0.2, depth: 4 }, this.scene);
+            lWing.parent = vis;
+            lWing.position.x = -2.5;
+            lWing.position.z = -2;
+            lWing.rotation.y = -Math.PI / 4; // Sweep back
+            lWing.material = matWing;
+
+            var rWing = lWing.clone();
+            rWing.parent = vis;
+            rWing.position.x = 2.5;
+            rWing.rotation.y = Math.PI / 4; // Sweep back
+
+            // Engines (Big Blocks)
+            var engineL = BABYLON.MeshBuilder.CreateBox("engL", { width: 1.5, height: 1.5, depth: 4 }, this.scene);
+            engineL.parent = vis;
+            engineL.position.x = -1.5;
+            engineL.position.z = -5;
+            engineL.material = matBody;
+
+            var engineR = engineL.clone();
+            engineR.parent = vis;
+            engineR.position.x = 1.5;
+
+            // Glows
+            var glowL = BABYLON.MeshBuilder.CreatePlane("glowL", { size: 1.2 }, this.scene);
+            glowL.parent = engineL;
+            glowL.position.z = -2.01;
+            glowL.rotation.y = Math.PI;
+            glowL.material = matEngine;
+
+            var glowR = glowL.clone();
+            glowR.parent = engineR;
+
+            // Physics Stats
+            var x = (Math.random() - 0.5) * 800;
+            var z = 300 + (Math.random() * 500);
+
+            root.position = new BABYLON.Vector3(x, 0, z);
+            root.hp = 10;
+            root.type = "raider";
+            root.lastShot = 0;
+
+            // Reference the Visual for Banking Logic
+            root.visual = vis;
+
+            // Hitbox hack: Since root is a TransformNode, we need a hitbox.
+            // Let's attach a simplified hitbox to the root for collision logic
+            // Actually, existing logic checks intersectsMesh.
+            // We need a mesh on the root? Or we just assume the 'body' is close enough?
+            // The lasers check 'intersectsMesh(enemy)'. 'enemy' is 'root'.
+            // Root has no geometry. Collision will FAIL.
+            // FIX: Create an invisible box on the Root for collision.
+            var hitbox = BABYLON.MeshBuilder.CreateBox("hitbox", { width: 6, height: 3, depth: 12 }, this.scene);
+            hitbox.parent = root;
+            hitbox.isVisible = false;
+            root.hitbox = hitbox; // Store it if needed, but 'intersectsMesh' works on the hitbox if we pass the hitbox to the array?
+
+            // Wait, our collision logic (line 910) loops 'this.enemies'.
+            // If 'this.enemies[j]' is 'root' (TransformNode), intersectsMesh fails.
+            // We should push the HITBOX to the enemies array?
+            // But then movement logic fails because we move the hitbox, does it move the visual?
+            // Yes, visual is sibling? No visual is child of root? 
+            // If Hitbox is child of Root, and we move Root, Hitbox moves. OK.
+            // But we pushed Root to 'enemies'.
+            // laser.intersectsMesh(root) -> Error/False.
+            // We need to modify checkCollisions to check Children? Or just push the hitbox?
+            // Safer: Push the ROOT to 'enemies', and modify checkCollisions to check 'enemy.hitbox || enemy'.
+
+            this.enemies.push(root);
+        }
+    },
+
     shootLaser: function () {
-        if (!this.ship) return;
+        console.log("shootLaser: Invoked");
+        if (!this.ship) { console.log("shootLaser: No Ship"); return; }
 
-        var laser = BABYLON.MeshBuilder.CreateCylinder("laser", { height: 10, diameter: 0.5 }, this.scene);
-        laser.rotation.x = Math.PI / 2;
+        var now = Date.now();
+        var diff = now - (this.lastShotTime || 0); // Handle undefined safely
+        console.log("shootLaser: Cooldown Check. Diff:", diff);
 
-        // Start at ship position
-        laser.position = this.ship.position.clone();
+        if (diff < 250) return; // 250ms Cooldown
+        this.lastShotTime = now;
 
-        // Initial Rotation matching ship
-        laser.rotationQuaternion = this.ship.rotationQuaternion ? this.ship.rotationQuaternion.clone() : null;
-        if (!laser.rotationQuaternion) {
-            laser.rotation.x = this.ship.rotation.x + (Math.PI / 2); // Cylinder correction
-            laser.rotation.y = this.ship.rotation.y;
-            laser.rotation.z = this.ship.rotation.z;
+        // [FIX] Dynamic Hardpoints
+        var offsets = [];
+        var count = this.hardpointCount || 2;
+
+        if (count === 1) {
+            offsets = [0]; // Center
+        } else if (count === 4) {
+            offsets = [-1.5, 1.5, -3.5, 3.5]; // Quad Spread
+        } else {
+            offsets = [-2.5, 2.5]; // Dual (Default)
         }
 
-        // Color
-        var laserMat = new BABYLON.StandardMaterial("laserMat", this.scene);
-        laserMat.emissiveColor = new BABYLON.Color3(0, 1, 0); // Green Laser
-        laserMat.disableLighting = true;
-        laser.material = laserMat;
+        // Ensure Matrix is fresh
+        this.ship.computeWorldMatrix(true);
+        var mat = this.ship.getWorldMatrix();
+        var rightDir = BABYLON.Vector3.TransformNormal(BABYLON.Axis.X, mat).normalize();
+        var forwardDir = BABYLON.Vector3.TransformNormal(BABYLON.Axis.Z, mat).normalize();
 
-        // Velocity (Always forward relative to ship)
-        laser.direction = this.ship.forward.scale(5); // Speed 5
+        offsets.forEach(offset => {
+            // Visuals: Green Bolt (Longer Beam: Depth 6 -> 24)
+            var laser = BABYLON.MeshBuilder.CreateBox("laser", { width: 1.0, height: 1.0, depth: 24 }, this.scene);
 
-        // Despawn Timer
-        laser.life = 60; // 1 second @ 60fps
+            // Start at ship position + Offset
+            // Use calculated Right Vector
+            var right = rightDir.scale(offset);
 
-        this.lasers.push(laser);
+            laser.position = this.ship.position.add(right);
+
+            // Match Ship Rotation
+            if (this.ship.rotationQuaternion) {
+                laser.rotationQuaternion = this.ship.rotationQuaternion.clone();
+            } else {
+                laser.rotation.copyFrom(this.ship.rotation);
+            }
+
+            // Color
+            var laserMat = new BABYLON.StandardMaterial("laserMat", this.scene);
+            laserMat.emissiveColor = new BABYLON.Color3(0, 1, 0); // Green Laser
+            laserMat.disableLighting = true;
+            laser.material = laserMat;
+
+            // Velocity (Always forward relative to ship)
+            laser.direction = forwardDir.scale(5); // Speed 5
+
+            console.log("Laser Spawned!", { pos: laser.position.toString(), dir: laser.direction.toString() });
+
+            // Despawn Timer
+            laser.life = 120; // [FIX] Range Doubled (2 seconds @ 60fps)
+
+            this.lasers.push(laser);
+        });
     },
 
     updateLasers: function () {
@@ -892,25 +1091,283 @@ window.spaceRenderer = {
             for (var j = this.enemies.length - 1; j >= 0; j--) {
                 var enemy = this.enemies[j];
 
-                if (laser.intersectsMesh(enemy, true)) { // Babylon's built-in OBB check
+                // Check collision against Mesh or Hitbox
+                var hitTarget = enemy.hitbox ? enemy.hitbox : enemy;
+
+                // Safety Check: TransformNodes don't have intersectsMesh
+                if (!hitTarget.intersectsMesh) continue;
+
+                if (laser.intersectsMesh(hitTarget, true)) { // [FIX] Support Hitbox
                     // HIT!
+                    this.createExplosion(enemy.position);
 
-                    // FX?
+                    // Reduce HP
+                    enemy.hp--;
 
-                    // Destroy Both
-                    enemy.dispose();
-                    this.enemies.splice(j, 1);
+                    // Flash Red
+                    if (enemy.visual) {
+                        // Flash all children
+                        enemy.visual.getChildren().forEach(m => {
+                            if (m.material && m.material.emissiveColor) {
+                                var old = m.material.emissiveColor.clone();
+                                m.material.emissiveColor = new BABYLON.Color3(1, 1, 1);
+                                setTimeout(() => { if (!m.isDisposed()) m.material.emissiveColor = old; }, 100);
+                            }
+                        });
+                    } else {
+                        // Simple Drone
+                        enemy.material.emissiveColor = new BABYLON.Color3(1, 1, 1);
+                        setTimeout(() => { if (!enemy.isDisposed()) enemy.material.emissiveColor = new BABYLON.Color3(0.5, 0, 0); }, 100);
+                    }
 
+                    // Dead?
+                    if (enemy.hp <= 0) {
+                        enemy.dispose();
+                        this.enemies.splice(j, 1);
+                        this.createExplosion(enemy.position); // Big Boom
+
+                        // [NEW] Bounty Reward
+                        var reward = (enemy.type === "raider") ? 1000 : 250;
+                        if (this.dotNetRef) {
+                            this.dotNetRef.invokeMethodAsync("AddBounty", reward);
+                        }
+                    }
+
+                    // Laser hits: Destroy it and stop checking enemies
                     laser.dispose();
                     this.lasers.splice(i, 1);
-
-                    break; // Laser can only hit one thing (for now)
+                    break;
                 }
             }
         }
     },
 
-    createPlayerShip: function () {
+    // [NEW] Call this when entering a new sector to respawn enemies
+    resetCombat: function () {
+        // Clear old
+        if (this.enemies) {
+            this.enemies.forEach(e => { if (e.visual) e.visual.dispose(); e.dispose(); });
+        }
+        if (this.enemyProjectiles) {
+            this.enemyProjectiles.forEach(p => p.dispose());
+        }
+
+        this.enemies = [];
+        this.enemyProjectiles = [];
+
+        // Spawn New
+        this.createEnemies();
+        this.createRaiders();
+
+        console.log("Combat Reset: Enemies Spawned.");
+    },
+
+    updateEnemies: function () {
+        if (!this.enemies || !this.ship) return;
+        this.enemies.forEach(enemy => {
+            var dist = BABYLON.Vector3.Distance(enemy.position, this.ship.position);
+
+            if (dist < 300) { // Aggro Range
+                // [FIX] Smooth Rotation (Vector Fly-by-Wire)
+                // Instead of snapping to target, we slowly rotate our forward vector towards it.
+                var targetDir = this.ship.position.subtract(enemy.position).normalize();
+                var currentDir = enemy.forward; // Babylon uses .forward for Z-axis
+
+                // Lerp limit turn rate (0.01 = Heavy Ship, 0.05 = Agile Drone)
+                var turnRate = (enemy.type === "raider") ? 0.01 : 0.05;
+                var newDir = BABYLON.Vector3.Lerp(currentDir, targetDir, turnRate).normalize();
+
+                // Look at the new point in front of us
+                enemy.lookAt(enemy.position.add(newDir));
+
+                // [NEW] AI Type Behavior
+                if (enemy.type === "raider") {
+                    // Banking Logic (Roll based on Turn)
+                    if (enemy.visual) {
+                        // Calculate "Turn Amount" (How far right/left is the target?)
+                        // Dot product of Right Vector vs Target Direction
+                        var right = enemy.right; // Babylon TransformNode axis
+                        var turnFactor = BABYLON.Vector3.Dot(right, targetDir);
+                        // turnFactor: +1 (Right), -1 (Left), 0 (Straight)
+
+                        // Target Roll: -45deg to +45deg (inverted? Left turn -> Bank Left (Roll +?))
+                        // In Babylon LH: Rotation Z positive = CCW (Roll Right?)
+                        // Let's try: Turn Right (+Factor) -> Roll Right (-Z?)
+                        // It's usually Turn Right -> Bank Right (Right Wing Down).
+
+                        var targetRoll = -turnFactor * (Math.PI / 2.1); // ~85 degrees (Hard Bank)
+
+                        // Pitch? (Up/Down)
+                        // var upFactor = BABYLON.Vector3.Dot(enemy.up, targetDir);
+                        // var targetPitch = -upFactor * (Math.PI / 4);
+
+                        // Smoothly Lerp Rotation Z
+                        enemy.visual.rotation.z = BABYLON.Scalar.Lerp(enemy.visual.rotation.z, targetRoll, 0.05); // Slow roll
+                    }
+
+                    // Slower but Shoots
+                    var speed = 0.8; // [FIX] Increased 0.6 -> 0.8 to keep momentum 
+                    // Drone=0.125 is VERY slow.
+                    // Let's make Raider 0.5 (Still very slow)
+
+                    if (dist > 50) enemy.translate(BABYLON.Axis.Z, 0.5, BABYLON.Space.LOCAL);
+
+                    // Shoot?
+                    // If aiming roughly at player
+                    var angle = BABYLON.Vector3.GetAngleBetweenVectors(enemy.forward, targetDir, BABYLON.Vector3.Up());
+                    // Angle is in radians. 0.2 rad ~ 11 degrees.
+                    if (Math.abs(angle) < 0.2) {
+                        this.enemyShoot(enemy);
+                    }
+
+                } else {
+                    // Drone Behavior (Chaser)
+                    if (dist > 30) {
+                        enemy.translate(BABYLON.Axis.Z, 0.125, BABYLON.Space.LOCAL);
+                    } else {
+                        enemy.translate(BABYLON.Axis.X, 0.05, BABYLON.Space.LOCAL);
+                    }
+                }
+            }
+        });
+
+        // [NEW] Update Enemy Projectiles
+        this.updateEnemyProjectiles();
+    },
+
+    enemyShoot: function (enemy) {
+        var now = Date.now();
+        if (now - (enemy.lastShot || 0) < 1000) return; // 1 sec Fire Rate
+        enemy.lastShot = now;
+
+        var laser = BABYLON.MeshBuilder.CreateBox("eLaser", { width: 0.5, height: 0.5, depth: 12 }, this.scene);
+        laser.position = enemy.position.clone();
+        laser.lookAt(this.ship.position); // Aim at player current pos
+
+        var mat = new BABYLON.StandardMaterial("eLaserMat", this.scene);
+        mat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red
+        mat.disableLighting = true;
+        laser.material = mat;
+
+        laser.direction = laser.forward.scale(2); // Reduced speed vs Player (5)
+        laser.life = 100;
+
+        this.enemyProjectiles.push(laser);
+    },
+
+    updateEnemyProjectiles: function () {
+        for (var i = this.enemyProjectiles.length - 1; i >= 0; i--) {
+            var laser = this.enemyProjectiles[i];
+            laser.position.addInPlace(laser.direction);
+            laser.life--;
+
+            // Check Hit Player
+            if (this.shipBody && laser.intersectsMesh(this.shipBody, true)) {
+                // HIT PLAYER
+                console.log("WARNING: SHIELD HIT!");
+                // Visual? Flash HUD?
+                // For now, simple console
+
+                laser.dispose();
+                this.enemyProjectiles.splice(i, 1);
+                continue;
+            }
+
+            if (laser.life <= 0) {
+                laser.dispose();
+                this.enemyProjectiles.splice(i, 1);
+            }
+        }
+    },
+
+    createExplosion: function (position) {
+        var particleSystem = new BABYLON.ParticleSystem("explosion", 200, this.scene);
+        // Use a default particle texture (or create one dynamically if needed)
+        // For now, we assume a texture exists or we use a noise texture? 
+        // Actually, let's try to use a default or just colored squares if texture is missing.
+        // But Babylon usually needs a texture. 
+        // We can create a schematic texture?
+        // Let's use a URL if possible or just skip texture and rely on color? 
+        // Particles without texture might be invisible. 
+        // Workaround: Create a pixel texture.
+
+        // Simpler: Just rely on the particle system's default behavior?
+        // Let's assume we have no assets. create a serialized texture?
+        // Or just use a simple mesh-based explosion (Temporary)
+
+        // BETTER: Particle System with embedded base64 texture? Expensive.
+        // Let's do Mesh Explosion (Debris)
+
+        // 1. Flash
+        var flash = BABYLON.MeshBuilder.CreateSphere("flash", { diameter: 8 }, this.scene);
+        flash.position = position.clone();
+        var mat = new BABYLON.StandardMaterial("flashMat", this.scene);
+        mat.emissiveColor = new BABYLON.Color3(1, 1, 0); // Yellow
+        mat.disableLighting = true;
+        mat.alpha = 1.0;
+        flash.material = mat;
+
+        // Animate Flash
+        this.scene.registerBeforeRender(() => {
+            if (flash.isDisposed()) return;
+            flash.scaling.scaleInPlace(1.1);
+            mat.alpha -= 0.1;
+            if (mat.alpha <= 0) flash.dispose();
+        });
+
+        // 2. Debris (Cubes)
+        for (var d = 0; d < 8; d++) {
+            var deb = BABYLON.MeshBuilder.CreateBox("deb", { size: 1 }, this.scene);
+            deb.position = position.clone();
+            deb.material = this.ship.engineMat; // Reuse blue material? Or create red.
+
+            var dir = new BABYLON.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().scale(1.0);
+
+            // Animate Debris
+            // Attach a simple update loop to the mesh itself?
+            // Safer to just push to a volatile list?
+            // Using a closure here for simplicity (low object count)
+            let debris = deb;
+            let direction = dir;
+            let life = 60;
+
+            let rotation = new BABYLON.Vector3(Math.random(), Math.random(), Math.random());
+
+            let observer = this.scene.onBeforeRenderObservable.add(() => {
+                debris.position.addInPlace(direction);
+                debris.rotation.addInPlace(rotation);
+                life--;
+                if (life <= 0) {
+                    debris.dispose();
+                    this.scene.onBeforeRenderObservable.remove(observer);
+                }
+            });
+        }
+    },
+
+    changeShip: function (shipType, hardpointCount) {
+        if (this.ship) {
+            this.ship.dispose();
+            this.ship = null;
+        }
+        // Re-create with new type
+        this.inputMap = {};
+
+        // Store Stats
+        this.hardpointCount = hardpointCount || 2; // Default 2
+
+        this.createPlayerShip(shipType);
+
+        // Relink Camera
+        if (this.camera) {
+            this.camera.lockedTarget = this.ship;
+        }
+        console.log("Ship Changed: " + shipType + " [HP:" + this.hardpointCount + "]");
+    },
+
+    createPlayerShip: function (shipType) {
+        shipType = shipType || "Terran Shuttle";
+
         // Root Node (The actual physics center)
         this.ship = new BABYLON.TransformNode("PlayerShip", this.scene);
         this.ship.position = new BABYLON.Vector3(0, 0, -200); // [FIX] Spawn safely away from Sun/Gates
@@ -920,7 +1377,18 @@ window.spaceRenderer = {
         body.rotation.x = Math.PI / 2; // Point forward
         body.parent = this.ship;
         var hullMat = new BABYLON.StandardMaterial("hullMat", this.scene);
-        hullMat.diffuseColor = new BABYLON.Color3(0.7, 0.7, 0.8);
+
+        // Visual Variation
+        if (shipType === "Mining Barge") {
+            hullMat.diffuseColor = new BABYLON.Color3(1.0, 0.8, 0.2); // Yellow
+            body.scaling = new BABYLON.Vector3(2, 1, 2); // Fat
+        } else if (shipType === "Interceptor") {
+            hullMat.diffuseColor = new BABYLON.Color3(0.8, 0.1, 0.1); // Red
+            body.scaling = new BABYLON.Vector3(0.8, 1, 0.8); // Sleek
+        } else {
+            hullMat.diffuseColor = new BABYLON.Color3(0.7, 0.7, 0.8); // Silver (Default)
+        }
+
         hullMat.specularColor = new BABYLON.Color3(1, 1, 1);
         body.material = hullMat;
 
@@ -975,8 +1443,11 @@ window.spaceRenderer = {
             console.log(`Ship Status: DT=${dt.toFixed(4)} Cruising=${this.isCruising} Pos=${this.ship.position.toString()}`);
         }
 
-        var speed = 40; // Doubled Speed
-        var speed = 40; // Speed
+        var speed = 100;
+        // Turbo (Shift + W)
+        if (this.inputMap["shift"] && this.inputMap["w"]) {
+            speed = 200; // Turbo
+        }
         var forward = this.ship.forward;
         var movement = BABYLON.Vector3.Zero();
         var isThrusting = false;

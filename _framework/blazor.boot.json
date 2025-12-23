@@ -1,7 +1,7 @@
 {
   "mainAssemblyName": "SpaceBlazor",
   "resources": {
-    "hash": "sha256-UGDIrY8MU6wIbrAStVEqDDsB38vda1fHWapmCGdg518=",
+    "hash": "sha256-EXFo+Qb7ZPPChxlikbmvosGVGreCYUzZxJ5q6phiECk=",
     "fingerprinting": {
       "Microsoft.AspNetCore.Components.wetmqq4se3.wasm": "Microsoft.AspNetCore.Components.wasm",
       "Microsoft.AspNetCore.Components.Web.e0072lp8qx.wasm": "Microsoft.AspNetCore.Components.Web.wasm",
@@ -36,8 +36,8 @@
       "System.Text.Json.m4wdlob2qg.wasm": "System.Text.Json.wasm",
       "System.Text.RegularExpressions.k8ibga7wut.wasm": "System.Text.RegularExpressions.wasm",
       "System.Threading.q2tgddxke7.wasm": "System.Threading.wasm",
-      "System.Private.CoreLib.f8lg6boffh.wasm": "System.Private.CoreLib.wasm",
-      "SpaceBlazor.fgslhj9yf3.wasm": "SpaceBlazor.wasm",
+      "System.Private.CoreLib.q46tdcok7b.wasm": "System.Private.CoreLib.wasm",
+      "SpaceBlazor.bs9igbv122.wasm": "SpaceBlazor.wasm",
       "dotnet.js": "dotnet.js",
       "dotnet.native.noby4tlk4d.js": "dotnet.native.js",
       "dotnet.native.qe75a9vfqn.wasm": "dotnet.native.wasm",
@@ -62,7 +62,7 @@
     },
     "coreAssembly": {
       "System.Runtime.InteropServices.JavaScript.u9tzo6t7zm.wasm": "sha256-8v7jVijrzRlaTmvdds4+ZNyPL5DYfnYnzFYT2HtkqwM=",
-      "System.Private.CoreLib.f8lg6boffh.wasm": "sha256-f+HcCah/E0o/F4+f2WbbWluAwEMZvXySbLD0AmcgaCw="
+      "System.Private.CoreLib.q46tdcok7b.wasm": "sha256-SiH7a9RiPH8Mt06xkmaG8m/A3lGQI3goRrGbtxRqf+o="
     },
     "assembly": {
       "Microsoft.AspNetCore.Components.wetmqq4se3.wasm": "sha256-aICkpGfyZWImAzfBpPvgxbazevcFBdDyGybY37QHMvk=",
@@ -97,7 +97,7 @@
       "System.Text.Json.m4wdlob2qg.wasm": "sha256-5qjfGZGHbvBXYE9OBLQ32FHz6vObx9o8C5SsZm1rOto=",
       "System.Text.RegularExpressions.k8ibga7wut.wasm": "sha256-7OYvLuFLvwbax++2u+uoDmoaX8o/Q8wcYJC92eP1YjA=",
       "System.Threading.q2tgddxke7.wasm": "sha256-zncUNmLvW8+ubA+sqWx5FiQfdH+7iXKdHOZT34w96r0=",
-      "SpaceBlazor.fgslhj9yf3.wasm": "sha256-T3CEFXzk//IuZ2jVNDAIyo95J7IBel2xiqlaAsYGXzc="
+      "SpaceBlazor.bs9igbv122.wasm": "sha256-9bEI/sCZeTTM3Lb2L2UkN+6xIEGacpX3QuwH2r6pKEs="
     }
   },
   "cacheBootResources": true,
