@@ -76,7 +76,8 @@ window.spaceRenderer = {
 
         // Create Player Ship
         this.createPlayerShip();
-        this.lasers = [];
+        this.lasers = []; // [FIX] Reverted to 'lasers' to match existing updateLasers function
+        this.lastShotTime = 0; // [NEW] Cooldown
         this.enemies = [];
         this.createEnemies();
 
@@ -99,8 +100,8 @@ window.spaceRenderer = {
             var key = evt.sourceEvent.key.toLowerCase();
             this.inputMap[key] = evt.sourceEvent.type == "keydown";
 
-            // Toggle Cruise Control (Shift + W)
-            if (key === "w" && evt.sourceEvent.shiftKey && evt.sourceEvent.type == "keydown") {
+            // Toggle Cruise Control (Shift + R)
+            if (key === "r" && evt.sourceEvent.shiftKey && evt.sourceEvent.type == "keydown") {
                 this.isCruising = !this.isCruising;
                 console.log("Cruise Control:", this.isCruising ? "ON" : "OFF");
             }
@@ -232,7 +233,7 @@ window.spaceRenderer = {
             // Only PointerMove
             if (pointerInfo.type !== BABYLON.PointerEventTypes.POINTERMOVE) return;
 
-            var sensitivity = 0.002;
+            var sensitivity = 0.001; // [FIX] Reduced from 0.002
             var dx = pointerInfo.event.movementX || 0;
             var dy = pointerInfo.event.movementY || 0;
 
@@ -242,7 +243,7 @@ window.spaceRenderer = {
                 this.ship.rotation.y += dx * sensitivity;
                 this.ship.rotation.x += dy * sensitivity;
 
-                this.targetRoll = -dx * 0.5;
+                this.targetRoll = -dx * 0.1; // [FIX] Reduced Roll Effect (was 0.5)
             }
         });
     },
@@ -696,16 +697,17 @@ window.spaceRenderer = {
     update: function () {
         if (!this.scene) return;
 
-        // Sub-systems
         this.updateShip();
         this.updateLasers();
+        this.updateEnemies(); // [NEW] AI Logic
         this.checkCollisions();
         this.checkGateCollisions();
         this.checkDockingProximity();
+        this.updateEnemies(); // [FIX] Call AI Logic
         this.updateSpaceDust();
         this.updateWaypoints();
         this.updateWarpEffect();
-        this.updateRadar(); // [FIX] Restore Radar
+        this.updateRadar();
     },
 
     updateSpaceDust: function () {
@@ -805,35 +807,63 @@ window.spaceRenderer = {
             if (m.name.startsWith("gateRoot_")) ctx.fillStyle = "cyan";
             else if (m.name.startsWith("stationRoot_")) ctx.fillStyle = "lime";
             else if (m.name.startsWith("planet_")) ctx.fillStyle = "blue";
-            else if (m.name.startsWith("enemy_")) ctx.fillStyle = "red";
-            else return; // Don't draw unknown stuff
+            else return;
 
             // Draw Dot
             ctx.beginPath();
             ctx.arc(mapX, mapY, 3, 0, Math.PI * 2);
             ctx.fill();
         });
+
+        // [new] Draw Enemies
+        if (this.enemies) {
+            ctx.fillStyle = "red";
+            this.enemies.forEach(e => {
+                if (e.isDisposed()) return;
+                var relPos = e.position.subtract(this.shipBody.absolutePosition);
+                var rx = relPos.x;
+                var rz = relPos.z;
+                var mapX = cx + (rx / range) * (w / 2);
+                var mapY = cy - (rz / range) * (h / 2);
+
+                // Check Bounds
+                var dist = Math.sqrt((mapX - cx) * (mapX - cx) + (mapY - cy) * (mapY - cy));
+                if (dist > w / 2 - 5) return;
+
+                ctx.beginPath();
+                ctx.arc(mapX, mapY, 3, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
     },
 
     createEnemies: function () {
         var mat = new BABYLON.StandardMaterial("enemyMat", this.scene);
-        mat.diffuseColor = new BABYLON.Color3(1, 0, 0); // Red
-        mat.emissiveColor = new BABYLON.Color3(0.5, 0, 0); // Slight Glow
+        mat.diffuseColor = new BABYLON.Color3(1, 0, 0);
+        mat.emissiveColor = new BABYLON.Color3(0.5, 0, 0);
 
-        // Spawn 10 Random Cubes
+        // Spawn 10 Drones
         for (var i = 0; i < 10; i++) {
-            var enemy = BABYLON.MeshBuilder.CreateBox("enemy" + i, { size: 4 }, this.scene);
+            // Drone Body
+            var enemy = BABYLON.MeshBuilder.CreateSphere("enemy" + i, { diameter: 6, segments: 8 }, this.scene);
 
-            // Random Position in front of player
-            var x = (Math.random() - 0.5) * 100;
-            var y = (Math.random() - 0.5) * 50;
-            var z = 50 + (Math.random() * 200);
+            // Spikes (Visual Aggression)
+            var spike = BABYLON.MeshBuilder.CreateCylinder("s", { height: 12, diameter: 1 }, this.scene);
+            spike.parent = enemy;
+            spike.rotation.x = Math.PI / 2;
+
+            var spike2 = spike.clone();
+            spike2.parent = enemy;
+            spike2.rotation.y = Math.PI / 2;
+
+            // Random Position
+            var x = (Math.random() - 0.5) * 400;
+            var y = (Math.random() - 0.5) * 200;
+            var z = 100 + (Math.random() * 400);
 
             enemy.position = new BABYLON.Vector3(x, y, z);
             enemy.material = mat;
-
-            // Random Rotation visual
-            enemy.rotation = new BABYLON.Vector3(Math.random(), Math.random(), Math.random());
+            enemy.hp = 3; // Health
 
             this.enemies.push(enemy);
         }
@@ -842,18 +872,23 @@ window.spaceRenderer = {
     shootLaser: function () {
         if (!this.ship) return;
 
-        var laser = BABYLON.MeshBuilder.CreateCylinder("laser", { height: 10, diameter: 0.5 }, this.scene);
-        laser.rotation.x = Math.PI / 2;
+        var now = Date.now();
+        if (now - this.lastShotTime < 250) return; // 250ms Cooldown
+        this.lastShotTime = now;
+
+
+
+        // Visuals: Green Bolt (Use Box for Z-alignment)
+        var laser = BABYLON.MeshBuilder.CreateBox("laser", { width: 0.2, height: 0.2, depth: 6 }, this.scene);
 
         // Start at ship position
         laser.position = this.ship.position.clone();
 
-        // Initial Rotation matching ship
-        laser.rotationQuaternion = this.ship.rotationQuaternion ? this.ship.rotationQuaternion.clone() : null;
-        if (!laser.rotationQuaternion) {
-            laser.rotation.x = this.ship.rotation.x + (Math.PI / 2); // Cylinder correction
-            laser.rotation.y = this.ship.rotation.y;
-            laser.rotation.z = this.ship.rotation.z;
+        // Match Ship Rotation
+        if (this.ship.rotationQuaternion) {
+            laser.rotationQuaternion = this.ship.rotationQuaternion.clone();
+        } else {
+            laser.rotation.copyFrom(this.ship.rotation);
         }
 
         // Color
@@ -894,19 +929,121 @@ window.spaceRenderer = {
 
                 if (laser.intersectsMesh(enemy, true)) { // Babylon's built-in OBB check
                     // HIT!
+                    this.createExplosion(enemy.position);
 
-                    // FX?
+                    // Reduce HP
+                    enemy.hp--;
 
-                    // Destroy Both
-                    enemy.dispose();
-                    this.enemies.splice(j, 1);
+                    // Flash Red
+                    enemy.material.emissiveColor = new BABYLON.Color3(1, 1, 1);
+                    setTimeout(() => { if (!enemy.isDisposed()) enemy.material.emissiveColor = new BABYLON.Color3(0.5, 0, 0); }, 100);
+
+                    // Dead?
+                    if (enemy.hp <= 0) {
+                        enemy.dispose();
+                        this.enemies.splice(j, 1);
+                        this.createExplosion(enemy.position); // Big Boom
+                    }
 
                     laser.dispose();
                     this.lasers.splice(i, 1);
 
-                    break; // Laser can only hit one thing (for now)
+                    break;
                 }
             }
+        }
+    },
+
+    updateEnemies: function () {
+        if (!this.enemies || !this.ship) return;
+        this.enemies.forEach(enemy => {
+            var dist = BABYLON.Vector3.Distance(enemy.position, this.ship.position);
+
+            if (dist < 300) { // Aggro Range
+                // [FIX] Smooth Rotation (Vector Fly-by-Wire)
+                // Instead of snapping to target, we slowly rotate our forward vector towards it.
+                var targetDir = this.ship.position.subtract(enemy.position).normalize();
+                var currentDir = enemy.forward; // Babylon uses .forward for Z-axis
+
+                // Lerp limit turn rate (0.05 = Sluggish)
+                var newDir = BABYLON.Vector3.Lerp(currentDir, targetDir, 0.05).normalize();
+
+                // Look at the new point in front of us
+                enemy.lookAt(enemy.position.add(newDir));
+
+                // Move Forward (Reduced Speed 0.25 -> 0.125)
+                if (dist > 30) {
+                    enemy.translate(BABYLON.Axis.Z, 0.125, BABYLON.Space.LOCAL);
+                } else {
+                    // Strafe (Reduced 0.1 -> 0.05)
+                    enemy.translate(BABYLON.Axis.X, 0.05, BABYLON.Space.LOCAL);
+                }
+            }
+        });
+    },
+
+    createExplosion: function (position) {
+        var particleSystem = new BABYLON.ParticleSystem("explosion", 200, this.scene);
+        // Use a default particle texture (or create one dynamically if needed)
+        // For now, we assume a texture exists or we use a noise texture? 
+        // Actually, let's try to use a default or just colored squares if texture is missing.
+        // But Babylon usually needs a texture. 
+        // We can create a schematic texture?
+        // Let's use a URL if possible or just skip texture and rely on color? 
+        // Particles without texture might be invisible. 
+        // Workaround: Create a pixel texture.
+
+        // Simpler: Just rely on the particle system's default behavior?
+        // Let's assume we have no assets. create a serialized texture?
+        // Or just use a simple mesh-based explosion (Temporary)
+
+        // BETTER: Particle System with embedded base64 texture? Expensive.
+        // Let's do Mesh Explosion (Debris)
+
+        // 1. Flash
+        var flash = BABYLON.MeshBuilder.CreateSphere("flash", { diameter: 8 }, this.scene);
+        flash.position = position.clone();
+        var mat = new BABYLON.StandardMaterial("flashMat", this.scene);
+        mat.emissiveColor = new BABYLON.Color3(1, 1, 0); // Yellow
+        mat.disableLighting = true;
+        mat.alpha = 1.0;
+        flash.material = mat;
+
+        // Animate Flash
+        this.scene.registerBeforeRender(() => {
+            if (flash.isDisposed()) return;
+            flash.scaling.scaleInPlace(1.1);
+            mat.alpha -= 0.1;
+            if (mat.alpha <= 0) flash.dispose();
+        });
+
+        // 2. Debris (Cubes)
+        for (var d = 0; d < 8; d++) {
+            var deb = BABYLON.MeshBuilder.CreateBox("deb", { size: 1 }, this.scene);
+            deb.position = position.clone();
+            deb.material = this.ship.engineMat; // Reuse blue material? Or create red.
+
+            var dir = new BABYLON.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().scale(1.0);
+
+            // Animate Debris
+            // Attach a simple update loop to the mesh itself?
+            // Safer to just push to a volatile list?
+            // Using a closure here for simplicity (low object count)
+            let debris = deb;
+            let direction = dir;
+            let life = 60;
+
+            let rotation = new BABYLON.Vector3(Math.random(), Math.random(), Math.random());
+
+            let observer = this.scene.onBeforeRenderObservable.add(() => {
+                debris.position.addInPlace(direction);
+                debris.rotation.addInPlace(rotation);
+                life--;
+                if (life <= 0) {
+                    debris.dispose();
+                    this.scene.onBeforeRenderObservable.remove(observer);
+                }
+            });
         }
     },
 
@@ -975,8 +1112,11 @@ window.spaceRenderer = {
             console.log(`Ship Status: DT=${dt.toFixed(4)} Cruising=${this.isCruising} Pos=${this.ship.position.toString()}`);
         }
 
-        var speed = 40; // Doubled Speed
-        var speed = 40; // Speed
+        var speed = 100;
+        // Turbo (Shift + W)
+        if (this.inputMap["shift"] && this.inputMap["w"]) {
+            speed = 200; // Turbo
+        }
         var forward = this.ship.forward;
         var movement = BABYLON.Vector3.Zero();
         var isThrusting = false;
