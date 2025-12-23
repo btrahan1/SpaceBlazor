@@ -4,6 +4,160 @@ window.spaceRenderer = {
     scene: null,
     camera: null,
 
+    // [NEW] Sound Manager
+    sfx: {
+        ctx: null,
+        masterGain: null,
+        isMuted: false,
+        engineOsc: null,
+        engineGain: null,
+        isInit: false,
+
+        init: function () {
+            if (this.isInit) return;
+            try {
+                var AudioContext = window.AudioContext || window.webkitAudioContext;
+                this.ctx = new AudioContext();
+                this.masterGain = this.ctx.createGain();
+                this.masterGain.gain.value = 0.5; // 50% Volume
+                this.masterGain.connect(this.ctx.destination);
+
+                // Create Noise Buffer for Explosions
+                this.noiseBuffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 2, this.ctx.sampleRate);
+                var data = this.noiseBuffer.getChannelData(0);
+                for (var i = 0; i < this.ctx.sampleRate * 2; i++) {
+                    data[i] = Math.random() * 2 - 1;
+                }
+
+                this.isInit = true;
+                console.log("Audio System Initialized.");
+            } catch (e) {
+                console.warn("WebAudio not supported.");
+            }
+        },
+
+        setMute: function (muted) {
+            this.isMuted = muted;
+            if (this.masterGain) {
+                this.masterGain.gain.setValueAtTime(muted ? 0 : 0.5, this.ctx.currentTime);
+            }
+            // Stop engine if muted
+            if (muted && this.engineOsc) {
+                this.engineGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.1);
+            }
+        },
+
+        laser: function (isEnemy) {
+            if (!this.isInit || this.isMuted) return;
+            if (this.ctx.state === 'suspended') this.ctx.resume();
+
+            var now = this.ctx.currentTime;
+
+            // OSC 1: The "Crunch" (Body)
+            var osc = this.ctx.createOscillator();
+            var gain = this.ctx.createGain();
+            osc.type = isEnemy ? 'square' : 'sawtooth';
+
+            var startFreq = isEnemy ? 200 : 350;
+            var endFreq = isEnemy ? 40 : 50;
+            var dur = isEnemy ? 0.4 : 0.25;
+
+            osc.frequency.setValueAtTime(startFreq, now);
+            osc.frequency.exponentialRampToValueAtTime(endFreq, now + dur);
+
+            gain.gain.setValueAtTime(0.3, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + dur);
+
+            osc.connect(gain);
+            gain.connect(this.masterGain);
+            osc.start(now);
+            osc.stop(now + dur);
+
+            // [RESTORED] OSC 2: The "Zing" (Metal Tail) - Player Only
+            if (!isEnemy) {
+                var osc2 = this.ctx.createOscillator();
+                var gain2 = this.ctx.createGain();
+                osc2.type = 'sine';
+
+                // High Pitch Sweep "Peeeww...innng" (Star Wars Blaster)
+                osc2.frequency.setValueAtTime(2500, now); // Higher start
+                osc2.frequency.exponentialRampToValueAtTime(200, now + 0.7); // Long drop
+
+                gain2.gain.setValueAtTime(0.2, now);
+                gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.7);
+
+                osc2.connect(gain2);
+                gain2.connect(this.masterGain);
+                osc2.start(now);
+                osc2.stop(now + 0.7);
+            }
+        },
+
+        explosion: function () {
+            if (!this.isInit || this.isMuted) return;
+
+            var src = this.ctx.createBufferSource();
+            src.buffer = this.noiseBuffer;
+
+            var filter = this.ctx.createBiquadFilter();
+            filter.type = "lowpass";
+            filter.frequency.value = 1000;
+
+            var gain = this.ctx.createGain();
+            var now = this.ctx.currentTime;
+
+            gain.gain.setValueAtTime(1.0, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 1.0);
+
+            src.connect(filter);
+            filter.connect(gain);
+            gain.connect(this.masterGain);
+
+            src.start(now);
+            src.stop(now + 1.0);
+        },
+
+        // Engine Hum
+        updateEngine: function (speedRatio) {
+            if (!this.isInit || this.isMuted) return;
+            // [FIX] Ensure Context is Awake
+            if (this.ctx.state === 'suspended') this.ctx.resume();
+
+            // Lazy Init Engine
+            if (!this.engineOsc) {
+                this.engineOsc = this.ctx.createOscillator();
+                this.engineOsc.type = 'sawtooth'; // Rougher "Grrr"
+
+                // Filter for "Muffler" effect
+                this.engineFilter = this.ctx.createBiquadFilter();
+                this.engineFilter.type = 'lowpass';
+
+                this.engineGain = this.ctx.createGain();
+                this.engineGain.gain.value = 0;
+
+                // Chain: Osc -> Filter -> Gain -> Master
+                this.engineOsc.connect(this.engineFilter);
+                this.engineFilter.connect(this.engineGain);
+                this.engineGain.connect(this.masterGain);
+                this.engineOsc.start();
+            }
+
+            var now = this.ctx.currentTime;
+
+            // RPM: 40Hz -> 100Hz (Deep Rumble)
+            var targetFreq = 40 + (speedRatio * 60);
+            this.engineOsc.frequency.setTargetAtTime(targetFreq, now, 0.1);
+
+            // Throttle (Filter Open): 100Hz -> 600Hz (The "Roar")
+            var targetCutoff = 100 + (speedRatio * 500);
+            this.engineFilter.frequency.setTargetAtTime(targetCutoff, now, 0.1);
+
+            // Volume
+            var targetVol = 0.2 + (speedRatio * 0.3);
+            this.engineGain.gain.setTargetAtTime(targetVol, now, 0.1);
+        }
+    },
+
     init: function (canvasId) {
         this.canvas = document.getElementById(canvasId);
         this.engine = new BABYLON.Engine(this.canvas, true);
@@ -219,6 +373,9 @@ window.spaceRenderer = {
                     document.exitPointerLock();
                     console.log("Flight Mode: DISENGAGED");
                 } else {
+                    // Audio Init
+                    this.sfx.init();
+
                     canvas.requestPointerLock = canvas.requestPointerLock || canvas.mozRequestPointerLock;
                     canvas.requestPointerLock();
                     console.log("Flight Mode: ENGAGED");
@@ -1061,6 +1218,9 @@ window.spaceRenderer = {
             // Velocity (Always forward relative to ship)
             laser.direction = forwardDir.scale(5); // Speed 5
 
+            // SFX
+            this.sfx.laser(false); // Player Laser
+
             console.log("Laser Spawned!", { pos: laser.position.toString(), dir: laser.direction.toString() });
 
             // Despawn Timer
@@ -1125,6 +1285,7 @@ window.spaceRenderer = {
                         enemy.dispose();
                         this.enemies.splice(j, 1);
                         this.createExplosion(enemy.position); // Big Boom
+                        this.sfx.explosion(); // SFX
 
                         // [NEW] Bounty Reward
                         var reward = (enemy.type === "raider") ? 1000 : 250;
@@ -1251,6 +1412,8 @@ window.spaceRenderer = {
 
         laser.direction = laser.forward.scale(2); // Reduced speed vs Player (5)
         laser.life = 100;
+
+        this.sfx.laser(true); // Enemy Laser
 
         this.enemyProjectiles.push(laser);
     },
@@ -1517,6 +1680,10 @@ window.spaceRenderer = {
 
         // Decay roll if no mouse input (happens automatically via mouse delta 0)
         this.targetRoll = BABYLON.Scalar.Lerp(this.targetRoll || 0, 0, 0.1);
+
+        // Audio Engine
+        var speedRatio = isThrusting ? (speed / 200) : 0;
+        this.sfx.updateEngine(speedRatio);
     },
 
     resetShip: function () {
