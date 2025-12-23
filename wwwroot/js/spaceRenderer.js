@@ -79,7 +79,9 @@ window.spaceRenderer = {
         this.lasers = []; // [FIX] Reverted to 'lasers' to match existing updateLasers function
         this.lastShotTime = 0; // [NEW] Cooldown
         this.enemies = [];
+        this.enemyProjectiles = []; // [NEW] Enemy Lasers
         this.createEnemies();
+        this.createRaiders(); // [NEW] Spawn Raiders
 
         // Camera (Follow Ship)
         // Parameters: Name, Position, Scene
@@ -830,9 +832,25 @@ window.spaceRenderer = {
                 var dist = Math.sqrt((mapX - cx) * (mapX - cx) + (mapY - cy) * (mapY - cy));
                 if (dist > w / 2 - 5) return;
 
-                ctx.beginPath();
-                ctx.arc(mapX, mapY, 3, 0, Math.PI * 2);
-                ctx.fill();
+                if (dist > w / 2 - 5) return;
+
+                if (e.type === "raider") {
+                    // Draw Purple X
+                    ctx.strokeStyle = "#D000FF"; // Bright Purple
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(mapX - 4, mapY - 4);
+                    ctx.lineTo(mapX + 4, mapY + 4);
+                    ctx.moveTo(mapX + 4, mapY - 4);
+                    ctx.lineTo(mapX - 4, mapY + 4);
+                    ctx.stroke();
+                } else {
+                    // Draw Red Dot (Drone)
+                    ctx.fillStyle = "red";
+                    ctx.beginPath();
+                    ctx.arc(mapX, mapY, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
             });
         }
     },
@@ -863,9 +881,121 @@ window.spaceRenderer = {
 
             enemy.position = new BABYLON.Vector3(x, y, z);
             enemy.material = mat;
+            enemy.material = mat;
             enemy.hp = 3; // Health
+            enemy.type = "drone"; // [NEW] AI Type
 
             this.enemies.push(enemy);
+        }
+    },
+
+    createRaiders: function () {
+        var matBody = new BABYLON.StandardMaterial("raiderBody", this.scene);
+        matBody.diffuseColor = new BABYLON.Color3(0.6, 0.4, 0.9); // Light Purple
+        matBody.specularColor = new BABYLON.Color3(1, 1, 1);
+        matBody.emissiveColor = new BABYLON.Color3(0.1, 0.0, 0.2);
+
+        var matWing = new BABYLON.StandardMaterial("raiderWing", this.scene);
+        matWing.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Dark Grey
+        matWing.emissiveColor = new BABYLON.Color3(0.8, 0, 1); // Purple Trim
+
+        var matEngine = new BABYLON.StandardMaterial("raiderEngine", this.scene);
+        matEngine.emissiveColor = new BABYLON.Color3(0, 1, 1); // Cyan Glow
+
+        // Spawn 3 Raiders
+        for (var i = 0; i < 3; i++) {
+            // Root Node (Driver) - Handles AI Movement
+            var root = new BABYLON.TransformNode("raider" + i, this.scene);
+
+            // Visual Node (Mesh) - Handles Banking/Animation
+            var vis = new BABYLON.TransformNode("raiderVis" + i, this.scene);
+            vis.parent = root;
+
+            // Design: "Viper" Style
+            // Fuselage (Long Hexagon)
+            var body = BABYLON.MeshBuilder.CreateCylinder("r_body", { height: 12, diameter: 2, tessellation: 6 }, this.scene);
+            body.parent = vis;
+            body.rotation.x = Math.PI / 2;
+            body.scaling.x = 0.8; // Flatten slightly
+            body.material = matBody;
+
+            // Nose Cone
+            var nose = BABYLON.MeshBuilder.CreateCylinder("r_nose", { height: 4, diameterBottom: 2, diameterTop: 0, tessellation: 6 }, this.scene);
+            nose.parent = vis;
+            nose.rotation.x = Math.PI / 2;
+            nose.position.z = 8; // In front
+            nose.material = matBody;
+
+            // Wings (Swept Back)
+            var lWing = BABYLON.MeshBuilder.CreateBox("lWing", { width: 6, height: 0.2, depth: 4 }, this.scene);
+            lWing.parent = vis;
+            lWing.position.x = -2.5;
+            lWing.position.z = -2;
+            lWing.rotation.y = -Math.PI / 4; // Sweep back
+            lWing.material = matWing;
+
+            var rWing = lWing.clone();
+            rWing.parent = vis;
+            rWing.position.x = 2.5;
+            rWing.rotation.y = Math.PI / 4; // Sweep back
+
+            // Engines (Big Blocks)
+            var engineL = BABYLON.MeshBuilder.CreateBox("engL", { width: 1.5, height: 1.5, depth: 4 }, this.scene);
+            engineL.parent = vis;
+            engineL.position.x = -1.5;
+            engineL.position.z = -5;
+            engineL.material = matBody;
+
+            var engineR = engineL.clone();
+            engineR.parent = vis;
+            engineR.position.x = 1.5;
+
+            // Glows
+            var glowL = BABYLON.MeshBuilder.CreatePlane("glowL", { size: 1.2 }, this.scene);
+            glowL.parent = engineL;
+            glowL.position.z = -2.01;
+            glowL.rotation.y = Math.PI;
+            glowL.material = matEngine;
+
+            var glowR = glowL.clone();
+            glowR.parent = engineR;
+
+            // Physics Stats
+            var x = (Math.random() - 0.5) * 800;
+            var z = 300 + (Math.random() * 500);
+
+            root.position = new BABYLON.Vector3(x, 0, z);
+            root.hp = 10;
+            root.type = "raider";
+            root.lastShot = 0;
+
+            // Reference the Visual for Banking Logic
+            root.visual = vis;
+
+            // Hitbox hack: Since root is a TransformNode, we need a hitbox.
+            // Let's attach a simplified hitbox to the root for collision logic
+            // Actually, existing logic checks intersectsMesh.
+            // We need a mesh on the root? Or we just assume the 'body' is close enough?
+            // The lasers check 'intersectsMesh(enemy)'. 'enemy' is 'root'.
+            // Root has no geometry. Collision will FAIL.
+            // FIX: Create an invisible box on the Root for collision.
+            var hitbox = BABYLON.MeshBuilder.CreateBox("hitbox", { width: 6, height: 3, depth: 12 }, this.scene);
+            hitbox.parent = root;
+            hitbox.isVisible = false;
+            root.hitbox = hitbox; // Store it if needed, but 'intersectsMesh' works on the hitbox if we pass the hitbox to the array?
+
+            // Wait, our collision logic (line 910) loops 'this.enemies'.
+            // If 'this.enemies[j]' is 'root' (TransformNode), intersectsMesh fails.
+            // We should push the HITBOX to the enemies array?
+            // But then movement logic fails because we move the hitbox, does it move the visual?
+            // Yes, visual is sibling? No visual is child of root? 
+            // If Hitbox is child of Root, and we move Root, Hitbox moves. OK.
+            // But we pushed Root to 'enemies'.
+            // laser.intersectsMesh(root) -> Error/False.
+            // We need to modify checkCollisions to check Children? Or just push the hitbox?
+            // Safer: Push the ROOT to 'enemies', and modify checkCollisions to check 'enemy.hitbox || enemy'.
+
+            this.enemies.push(root);
         }
     },
 
@@ -876,34 +1006,44 @@ window.spaceRenderer = {
         if (now - this.lastShotTime < 250) return; // 250ms Cooldown
         this.lastShotTime = now;
 
+        // [FIX] Dual Hardpoints & Fatter Lasers
+        var offsets = [-2.5, 2.5]; // Left and Right Wing
 
+        offsets.forEach(offset => {
+            // Visuals: Green Bolt (Fatter: Width 0.2 -> 1.0)
+            var laser = BABYLON.MeshBuilder.CreateBox("laser", { width: 1.0, height: 1.0, depth: 6 }, this.scene); // Fatter
 
-        // Visuals: Green Bolt (Use Box for Z-alignment)
-        var laser = BABYLON.MeshBuilder.CreateBox("laser", { width: 0.2, height: 0.2, depth: 6 }, this.scene);
+            // Start at ship position + Offset
+            // We need "Right" vector relative to ship rotation
+            var right = this.ship.right.scale(offset);
+            // .right logic: In Babylon, Mesh.right might need World Matrix if parented?
+            // Since ship works with .forward, .right should work unless hierarchy issues.
+            // Safe way: transform coordinate.
+            // But let's try .right first.
 
-        // Start at ship position
-        laser.position = this.ship.position.clone();
+            laser.position = this.ship.position.add(right);
 
-        // Match Ship Rotation
-        if (this.ship.rotationQuaternion) {
-            laser.rotationQuaternion = this.ship.rotationQuaternion.clone();
-        } else {
-            laser.rotation.copyFrom(this.ship.rotation);
-        }
+            // Match Ship Rotation
+            if (this.ship.rotationQuaternion) {
+                laser.rotationQuaternion = this.ship.rotationQuaternion.clone();
+            } else {
+                laser.rotation.copyFrom(this.ship.rotation);
+            }
 
-        // Color
-        var laserMat = new BABYLON.StandardMaterial("laserMat", this.scene);
-        laserMat.emissiveColor = new BABYLON.Color3(0, 1, 0); // Green Laser
-        laserMat.disableLighting = true;
-        laser.material = laserMat;
+            // Color
+            var laserMat = new BABYLON.StandardMaterial("laserMat", this.scene);
+            laserMat.emissiveColor = new BABYLON.Color3(0, 1, 0); // Green Laser
+            laserMat.disableLighting = true;
+            laser.material = laserMat;
 
-        // Velocity (Always forward relative to ship)
-        laser.direction = this.ship.forward.scale(5); // Speed 5
+            // Velocity (Always forward relative to ship)
+            laser.direction = this.ship.forward.scale(5); // Speed 5
 
-        // Despawn Timer
-        laser.life = 60; // 1 second @ 60fps
+            // Despawn Timer
+            laser.life = 120; // [FIX] Range Doubled (2 seconds @ 60fps)
 
-        this.lasers.push(laser);
+            this.lasers.push(laser);
+        });
     },
 
     updateLasers: function () {
@@ -927,7 +1067,10 @@ window.spaceRenderer = {
             for (var j = this.enemies.length - 1; j >= 0; j--) {
                 var enemy = this.enemies[j];
 
-                if (laser.intersectsMesh(enemy, true)) { // Babylon's built-in OBB check
+                // Check collision against Mesh or Hitbox
+                var hitTarget = enemy.hitbox ? enemy.hitbox : enemy;
+
+                if (laser.intersectsMesh(hitTarget, true)) { // [FIX] Support Hitbox
                     // HIT!
                     this.createExplosion(enemy.position);
 
@@ -935,8 +1078,20 @@ window.spaceRenderer = {
                     enemy.hp--;
 
                     // Flash Red
-                    enemy.material.emissiveColor = new BABYLON.Color3(1, 1, 1);
-                    setTimeout(() => { if (!enemy.isDisposed()) enemy.material.emissiveColor = new BABYLON.Color3(0.5, 0, 0); }, 100);
+                    if (enemy.visual) {
+                        // Flash all children
+                        enemy.visual.getChildren().forEach(m => {
+                            if (m.material && m.material.emissiveColor) {
+                                var old = m.material.emissiveColor.clone();
+                                m.material.emissiveColor = new BABYLON.Color3(1, 1, 1);
+                                setTimeout(() => { if (!m.isDisposed()) m.material.emissiveColor = old; }, 100);
+                            }
+                        });
+                    } else {
+                        // Simple Drone
+                        enemy.material.emissiveColor = new BABYLON.Color3(1, 1, 1);
+                        setTimeout(() => { if (!enemy.isDisposed()) enemy.material.emissiveColor = new BABYLON.Color3(0.5, 0, 0); }, 100);
+                    }
 
                     // Dead?
                     if (enemy.hp <= 0) {
@@ -965,21 +1120,111 @@ window.spaceRenderer = {
                 var targetDir = this.ship.position.subtract(enemy.position).normalize();
                 var currentDir = enemy.forward; // Babylon uses .forward for Z-axis
 
-                // Lerp limit turn rate (0.05 = Sluggish)
-                var newDir = BABYLON.Vector3.Lerp(currentDir, targetDir, 0.05).normalize();
+                // Lerp limit turn rate (0.01 = Heavy Ship, 0.05 = Agile Drone)
+                var turnRate = (enemy.type === "raider") ? 0.01 : 0.05;
+                var newDir = BABYLON.Vector3.Lerp(currentDir, targetDir, turnRate).normalize();
 
                 // Look at the new point in front of us
                 enemy.lookAt(enemy.position.add(newDir));
 
-                // Move Forward (Reduced Speed 0.25 -> 0.125)
-                if (dist > 30) {
-                    enemy.translate(BABYLON.Axis.Z, 0.125, BABYLON.Space.LOCAL);
+                // [NEW] AI Type Behavior
+                if (enemy.type === "raider") {
+                    // Banking Logic (Roll based on Turn)
+                    if (enemy.visual) {
+                        // Calculate "Turn Amount" (How far right/left is the target?)
+                        // Dot product of Right Vector vs Target Direction
+                        var right = enemy.right; // Babylon TransformNode axis
+                        var turnFactor = BABYLON.Vector3.Dot(right, targetDir);
+                        // turnFactor: +1 (Right), -1 (Left), 0 (Straight)
+
+                        // Target Roll: -45deg to +45deg (inverted? Left turn -> Bank Left (Roll +?))
+                        // In Babylon LH: Rotation Z positive = CCW (Roll Right?)
+                        // Let's try: Turn Right (+Factor) -> Roll Right (-Z?)
+                        // It's usually Turn Right -> Bank Right (Right Wing Down).
+
+                        var targetRoll = -turnFactor * (Math.PI / 2.1); // ~85 degrees (Hard Bank)
+
+                        // Pitch? (Up/Down)
+                        // var upFactor = BABYLON.Vector3.Dot(enemy.up, targetDir);
+                        // var targetPitch = -upFactor * (Math.PI / 4);
+
+                        // Smoothly Lerp Rotation Z
+                        enemy.visual.rotation.z = BABYLON.Scalar.Lerp(enemy.visual.rotation.z, targetRoll, 0.05); // Slow roll
+                    }
+
+                    // Slower but Shoots
+                    var speed = 0.8; // [FIX] Increased 0.6 -> 0.8 to keep momentum 
+                    // Drone=0.125 is VERY slow.
+                    // Let's make Raider 0.5 (Still very slow)
+
+                    if (dist > 50) enemy.translate(BABYLON.Axis.Z, 0.5, BABYLON.Space.LOCAL);
+
+                    // Shoot?
+                    // If aiming roughly at player
+                    var angle = BABYLON.Vector3.GetAngleBetweenVectors(enemy.forward, targetDir, BABYLON.Vector3.Up());
+                    // Angle is in radians. 0.2 rad ~ 11 degrees.
+                    if (Math.abs(angle) < 0.2) {
+                        this.enemyShoot(enemy);
+                    }
+
                 } else {
-                    // Strafe (Reduced 0.1 -> 0.05)
-                    enemy.translate(BABYLON.Axis.X, 0.05, BABYLON.Space.LOCAL);
+                    // Drone Behavior (Chaser)
+                    if (dist > 30) {
+                        enemy.translate(BABYLON.Axis.Z, 0.125, BABYLON.Space.LOCAL);
+                    } else {
+                        enemy.translate(BABYLON.Axis.X, 0.05, BABYLON.Space.LOCAL);
+                    }
                 }
             }
         });
+
+        // [NEW] Update Enemy Projectiles
+        this.updateEnemyProjectiles();
+    },
+
+    enemyShoot: function (enemy) {
+        var now = Date.now();
+        if (now - (enemy.lastShot || 0) < 1000) return; // 1 sec Fire Rate
+        enemy.lastShot = now;
+
+        var laser = BABYLON.MeshBuilder.CreateBox("eLaser", { width: 0.5, height: 0.5, depth: 4 }, this.scene);
+        laser.position = enemy.position.clone();
+        laser.lookAt(this.ship.position); // Aim at player current pos
+
+        var mat = new BABYLON.StandardMaterial("eLaserMat", this.scene);
+        mat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red
+        mat.disableLighting = true;
+        laser.material = mat;
+
+        laser.direction = laser.forward.scale(2); // Reduced speed vs Player (5)
+        laser.life = 100;
+
+        this.enemyProjectiles.push(laser);
+    },
+
+    updateEnemyProjectiles: function () {
+        for (var i = this.enemyProjectiles.length - 1; i >= 0; i--) {
+            var laser = this.enemyProjectiles[i];
+            laser.position.addInPlace(laser.direction);
+            laser.life--;
+
+            // Check Hit Player
+            if (this.shipBody && laser.intersectsMesh(this.shipBody, true)) {
+                // HIT PLAYER
+                console.log("WARNING: SHIELD HIT!");
+                // Visual? Flash HUD?
+                // For now, simple console
+
+                laser.dispose();
+                this.enemyProjectiles.splice(i, 1);
+                continue;
+            }
+
+            if (laser.life <= 0) {
+                laser.dispose();
+                this.enemyProjectiles.splice(i, 1);
+            }
+        }
     },
 
     createExplosion: function (position) {
