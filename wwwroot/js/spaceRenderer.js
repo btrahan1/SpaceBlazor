@@ -124,6 +124,7 @@ window.spaceRenderer = {
 
             // Fire Laser on Space (Single Press)
             if (key === " " && evt.sourceEvent.type == "keydown") {
+                console.log("Input: SPACE KEY DETECTED");
                 this.shootLaser();
             }
         }));
@@ -325,6 +326,9 @@ window.spaceRenderer = {
     loadSystem: function (data) {
         console.log("Loading System:", data);
         this.clearSystem();
+
+        // [NEW] Reset Combat (Spawn Enemies)
+        this.resetCombat();
 
         // 1. Update Environment
         // Skybox Color (Tint the texture or just change diffuse?)
@@ -699,17 +703,20 @@ window.spaceRenderer = {
     update: function () {
         if (!this.scene) return;
 
-        this.updateShip();
-        this.updateLasers();
-        this.updateEnemies(); // [NEW] AI Logic
-        this.checkCollisions();
-        this.checkGateCollisions();
-        this.checkDockingProximity();
-        this.updateEnemies(); // [FIX] Call AI Logic
-        this.updateSpaceDust();
-        this.updateWaypoints();
-        this.updateWarpEffect();
-        this.updateRadar();
+        try {
+            this.updateShip();
+            this.updateLasers();
+            this.updateEnemies();
+            this.checkCollisions();
+            this.checkGateCollisions();
+            this.checkDockingProximity();
+            this.updateSpaceDust();
+            this.updateWaypoints();
+            this.updateWarpEffect();
+            this.updateRadar();
+        } catch (e) {
+            console.error("Render Loop Error:", e);
+        }
     },
 
     updateSpaceDust: function () {
@@ -1000,26 +1007,41 @@ window.spaceRenderer = {
     },
 
     shootLaser: function () {
-        if (!this.ship) return;
+        console.log("shootLaser: Invoked");
+        if (!this.ship) { console.log("shootLaser: No Ship"); return; }
 
         var now = Date.now();
-        if (now - this.lastShotTime < 250) return; // 250ms Cooldown
+        var diff = now - (this.lastShotTime || 0); // Handle undefined safely
+        console.log("shootLaser: Cooldown Check. Diff:", diff);
+
+        if (diff < 250) return; // 250ms Cooldown
         this.lastShotTime = now;
 
-        // [FIX] Dual Hardpoints & Fatter Lasers
-        var offsets = [-2.5, 2.5]; // Left and Right Wing
+        // [FIX] Dynamic Hardpoints
+        var offsets = [];
+        var count = this.hardpointCount || 2;
+
+        if (count === 1) {
+            offsets = [0]; // Center
+        } else if (count === 4) {
+            offsets = [-1.5, 1.5, -3.5, 3.5]; // Quad Spread
+        } else {
+            offsets = [-2.5, 2.5]; // Dual (Default)
+        }
+
+        // Ensure Matrix is fresh
+        this.ship.computeWorldMatrix(true);
+        var mat = this.ship.getWorldMatrix();
+        var rightDir = BABYLON.Vector3.TransformNormal(BABYLON.Axis.X, mat).normalize();
+        var forwardDir = BABYLON.Vector3.TransformNormal(BABYLON.Axis.Z, mat).normalize();
 
         offsets.forEach(offset => {
-            // Visuals: Green Bolt (Fatter: Width 0.2 -> 1.0)
-            var laser = BABYLON.MeshBuilder.CreateBox("laser", { width: 1.0, height: 1.0, depth: 6 }, this.scene); // Fatter
+            // Visuals: Green Bolt (Longer Beam: Depth 6 -> 24)
+            var laser = BABYLON.MeshBuilder.CreateBox("laser", { width: 1.0, height: 1.0, depth: 24 }, this.scene);
 
             // Start at ship position + Offset
-            // We need "Right" vector relative to ship rotation
-            var right = this.ship.right.scale(offset);
-            // .right logic: In Babylon, Mesh.right might need World Matrix if parented?
-            // Since ship works with .forward, .right should work unless hierarchy issues.
-            // Safe way: transform coordinate.
-            // But let's try .right first.
+            // Use calculated Right Vector
+            var right = rightDir.scale(offset);
 
             laser.position = this.ship.position.add(right);
 
@@ -1037,7 +1059,9 @@ window.spaceRenderer = {
             laser.material = laserMat;
 
             // Velocity (Always forward relative to ship)
-            laser.direction = this.ship.forward.scale(5); // Speed 5
+            laser.direction = forwardDir.scale(5); // Speed 5
+
+            console.log("Laser Spawned!", { pos: laser.position.toString(), dir: laser.direction.toString() });
 
             // Despawn Timer
             laser.life = 120; // [FIX] Range Doubled (2 seconds @ 60fps)
@@ -1070,6 +1094,9 @@ window.spaceRenderer = {
                 // Check collision against Mesh or Hitbox
                 var hitTarget = enemy.hitbox ? enemy.hitbox : enemy;
 
+                // Safety Check: TransformNodes don't have intersectsMesh
+                if (!hitTarget.intersectsMesh) continue;
+
                 if (laser.intersectsMesh(hitTarget, true)) { // [FIX] Support Hitbox
                     // HIT!
                     this.createExplosion(enemy.position);
@@ -1098,15 +1125,41 @@ window.spaceRenderer = {
                         enemy.dispose();
                         this.enemies.splice(j, 1);
                         this.createExplosion(enemy.position); // Big Boom
+
+                        // [NEW] Bounty Reward
+                        var reward = (enemy.type === "raider") ? 1000 : 250;
+                        if (this.dotNetRef) {
+                            this.dotNetRef.invokeMethodAsync("AddBounty", reward);
+                        }
                     }
 
+                    // Laser hits: Destroy it and stop checking enemies
                     laser.dispose();
                     this.lasers.splice(i, 1);
-
                     break;
                 }
             }
         }
+    },
+
+    // [NEW] Call this when entering a new sector to respawn enemies
+    resetCombat: function () {
+        // Clear old
+        if (this.enemies) {
+            this.enemies.forEach(e => { if (e.visual) e.visual.dispose(); e.dispose(); });
+        }
+        if (this.enemyProjectiles) {
+            this.enemyProjectiles.forEach(p => p.dispose());
+        }
+
+        this.enemies = [];
+        this.enemyProjectiles = [];
+
+        // Spawn New
+        this.createEnemies();
+        this.createRaiders();
+
+        console.log("Combat Reset: Enemies Spawned.");
     },
 
     updateEnemies: function () {
@@ -1187,7 +1240,7 @@ window.spaceRenderer = {
         if (now - (enemy.lastShot || 0) < 1000) return; // 1 sec Fire Rate
         enemy.lastShot = now;
 
-        var laser = BABYLON.MeshBuilder.CreateBox("eLaser", { width: 0.5, height: 0.5, depth: 4 }, this.scene);
+        var laser = BABYLON.MeshBuilder.CreateBox("eLaser", { width: 0.5, height: 0.5, depth: 12 }, this.scene);
         laser.position = enemy.position.clone();
         laser.lookAt(this.ship.position); // Aim at player current pos
 
@@ -1292,7 +1345,29 @@ window.spaceRenderer = {
         }
     },
 
-    createPlayerShip: function () {
+    changeShip: function (shipType, hardpointCount) {
+        if (this.ship) {
+            this.ship.dispose();
+            this.ship = null;
+        }
+        // Re-create with new type
+        this.inputMap = {};
+
+        // Store Stats
+        this.hardpointCount = hardpointCount || 2; // Default 2
+
+        this.createPlayerShip(shipType);
+
+        // Relink Camera
+        if (this.camera) {
+            this.camera.lockedTarget = this.ship;
+        }
+        console.log("Ship Changed: " + shipType + " [HP:" + this.hardpointCount + "]");
+    },
+
+    createPlayerShip: function (shipType) {
+        shipType = shipType || "Terran Shuttle";
+
         // Root Node (The actual physics center)
         this.ship = new BABYLON.TransformNode("PlayerShip", this.scene);
         this.ship.position = new BABYLON.Vector3(0, 0, -200); // [FIX] Spawn safely away from Sun/Gates
@@ -1302,7 +1377,18 @@ window.spaceRenderer = {
         body.rotation.x = Math.PI / 2; // Point forward
         body.parent = this.ship;
         var hullMat = new BABYLON.StandardMaterial("hullMat", this.scene);
-        hullMat.diffuseColor = new BABYLON.Color3(0.7, 0.7, 0.8);
+
+        // Visual Variation
+        if (shipType === "Mining Barge") {
+            hullMat.diffuseColor = new BABYLON.Color3(1.0, 0.8, 0.2); // Yellow
+            body.scaling = new BABYLON.Vector3(2, 1, 2); // Fat
+        } else if (shipType === "Interceptor") {
+            hullMat.diffuseColor = new BABYLON.Color3(0.8, 0.1, 0.1); // Red
+            body.scaling = new BABYLON.Vector3(0.8, 1, 0.8); // Sleek
+        } else {
+            hullMat.diffuseColor = new BABYLON.Color3(0.7, 0.7, 0.8); // Silver (Default)
+        }
+
         hullMat.specularColor = new BABYLON.Color3(1, 1, 1);
         body.material = hullMat;
 

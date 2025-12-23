@@ -468,6 +468,7 @@
             // Load Initial System
             await JSRuntime.InvokeVoidAsync("spaceRenderer.loadSystem", Galaxy.CurrentSystem);
             await JSRuntime.InvokeVoidAsync("spaceRenderer.resetShip"); // [FIX] Ensure safe spawn
+            await JSRuntime.InvokeVoidAsync("spaceRenderer.changeShip", State.CurrentShip.Name, State.CurrentShip.Hardpoints); // [NEW] Set Correct Ship Visuals & Stats
             
             // KEY LISTENERS (D for Dock, M for Map, Shift+T for Lazy Trade)
             await JSRuntime.InvokeVoidAsync("eval", @"
@@ -748,6 +749,17 @@
         }
     }
 
+    [JSInvokable]
+    public async Task AddBounty(int amount)
+    {
+        State.ModifyCredits(amount);
+        // Show Toast? For now just refresh state
+        StateHasChanged();
+        
+        // Optional: Simple console log or JS Alert via runtime
+        // await JSRuntime.InvokeVoidAsync("console.log", $"Bounty Received: {amount} CR");
+    }
+
     private void Buy(string item, int price)
     {
         if (State.Credits >= price && State.GetCargoCount() < State.CargoCapacity)
@@ -793,7 +805,7 @@
         }
     }
 
-    private void PurchaseShip(SpaceBlazor.Models.ShipClass ship)
+    private async Task PurchaseShip(SpaceBlazor.Models.ShipClass ship)
     {
         // 1. Calculate Trade-In Value (50% of current ship price)
         var currentShip = State.CurrentShip; // Refers to the definition
@@ -807,6 +819,7 @@
         {
             State.ModifyCredits(-netCost);
             State.BuyShip(ship);
+            await JSRuntime.InvokeVoidAsync("spaceRenderer.changeShip", ship.Name, ship.Hardpoints);
             StateHasChanged();
         }
     }

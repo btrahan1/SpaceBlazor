@@ -8,7 +8,7 @@ namespace SpaceBlazor.Services
         public event Action OnChange;
 
         // Player Stats
-        public int Credits { get; private set; } = 1000;
+        public int Credits { get; private set; } = 50000;
         public int Hull { get; private set; } = 100;
         // Ship Data
         public string CurrentShipClassId { get; private set; } = "sidewinder";
